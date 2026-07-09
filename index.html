@@ -1822,6 +1822,9 @@ let S = { role:null, agencyId:null, view:null };
 
 /* ════════════════════ LOGIN ════════════════════ */
 let loginTab = 'agency';
+/* 企業コード → 内部ログイン用アドレス（実在しない識別子。provisioningスクリプトと必ず同じ変換にする） */
+const PARTNER_EMAIL_DOMAIN = 'partner.kanoa.local';
+function partnerEmail(code){ return String(code||'').trim().toLowerCase().replace(/[^a-z0-9._-]/g,'') + '@' + PARTNER_EMAIL_DOMAIN; }
 const LI_USER='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
 const LI_LOCK='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
 const LI_EYE='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
@@ -1883,9 +1886,9 @@ function renderLogin(){
 
   if(loginTab==='agency'){
     title.textContent='パートナーログイン';
-    sub.textContent='メールアドレスとパスワードでログイン';
+    sub.textContent='企業コードとパスワードでログイン';
     body.innerHTML = `
-      <div class="ix">${LI_USER}<input id="liId" type="email" value="${DEMO_MODE?'otsuka@alive.co.jp':''}" autocomplete="off" placeholder="メールアドレス"></div>
+      <div class="ix">${LI_USER}<input id="liId" type="${DEMO_MODE?'email':'text'}" value="${DEMO_MODE?'otsuka@alive.co.jp':''}" autocomplete="off" placeholder="${DEMO_MODE?'メールアドレス':'企業コード（例：PT-001）'}"></div>
       <div class="ix">${LI_LOCK}<input id="liPw" type="password" value="${DEMO_MODE?'alive2026':''}" autocomplete="off" placeholder="パスワード"><button type="button" class="ix-eye" data-act="pw-eye">${LI_EYE}</button></div>
       <div class="lrow"><label class="lcheck"><input type="checkbox" id="liRemember"><span>ログイン状態を保持する</span></label><button type="button" class="lforgot" data-act="forgot-pw">パスワードをお忘れの方</button></div>
       <div class="login-err" id="liErr"></div>
@@ -4662,11 +4665,7 @@ document.addEventListener('click', e=>{
     case 'ltab': loginTab=t.dataset.tab; renderLogin(); break;
     case 'pw-eye':{ const wrap=t.closest('.ix'); const inp=wrap&&wrap.querySelector('input'); if(inp) inp.type = inp.type==='password'?'text':'password'; break; }
     case 'forgot-pw': {
-      if(DEMO_MODE){ toast('パスワード再設定のご案内をメールでお送りします'); break; }
-      const err=m=>{const e=document.getElementById('liErr'); if(e) e.textContent=m;};
-      const email=(document.getElementById('liId').value||'').trim();
-      if(!email){ err('メールアドレスを入力してください'); break; }
-      SUPA.resetPassword(email).then(e=>{ if(e) err('送信に失敗しました：'+e.message); else toast('再設定リンクをメールで送信しました。メールをご確認ください。'); });
+      toast('パスワードは管理者が再発行します。KANOAのご担当者までご連絡ください。');
       break;
     }
     case 'set-password': {
@@ -4698,9 +4697,9 @@ document.addEventListener('click', e=>{
       }
       if(DEMO_MODE){ doLoginAgency((document.getElementById('liId').value||'').trim(), {checkPw:true}); }
       else { const err=m=>{const e=document.getElementById('liErr');if(e)e.textContent=m;};
-        const email=(document.getElementById('liId').value||'').trim(), pw=document.getElementById('liPw').value;
-        if(!email||!pw){ err('メールアドレスとパスワードを入力してください'); break; }
-        SUPA.signInPassword(email,pw).then(async e=>{ if(e){ err('メールまたはパスワードが違います'); return; } const ok=await SUPA.loginThen('agency'); if(!ok){ err('このアカウントはパートナーとして登録されていません'); return; } try{ SUPA.insertLoginLog(S.agencyId, true, 'パスワード'); }catch(e){} }).catch(()=>err('ログインに失敗しました')); }
+        const code=(document.getElementById('liId').value||'').trim(), pw=document.getElementById('liPw').value;
+        if(!code||!pw){ err('企業コードとパスワードを入力してください'); break; }
+        SUPA.signInPassword(partnerEmail(code),pw).then(async e=>{ if(e){ err('企業コードまたはパスワードが違います'); return; } const ok=await SUPA.loginThen('agency'); if(!ok){ err('このアカウントはパートナーとして登録されていません'); return; } try{ SUPA.insertLoginLog(S.agencyId, true, 'パスワード'); }catch(e){} }).catch(()=>err('ログインに失敗しました')); }
       break;
     case 'magic-link': {
       if(!DEMO_MODE){ const err=m=>{const e=document.getElementById('liErr');if(e)e.textContent=m;}; const email=(document.getElementById('liId').value||'').trim(); if(!email){ err('メールアドレスを入力してください'); break; } SUPA.signInOtp(email).then(e=>{ if(e) err('送信に失敗しました'); else toast('ログインリンクをメールで送信しました'); }); break; }
