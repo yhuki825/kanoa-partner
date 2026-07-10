@@ -2164,6 +2164,19 @@ function _silentRerenderInner(){
   if(focusId){ const el=document.getElementById(focusId); if(el){ try{ el.focus({preventScroll:true}); if(selStart!=null && 'setSelectionRange' in el) el.setSelectionRange(selStart, selEnd); }catch(e){} } }
 }
 
+/* 入力中（msgInput にフォーカス）でも、メッセージ表示部(.chat-body)だけを更新して
+   入力欄・日本語変換・カーソルを壊さずに新着を反映する */
+function refreshChatBodyOnly(){
+  const realBody=document.querySelector('#content .chat-body'); if(!realBody) return;
+  const ag=curThreadAg(); if(ag==null) return;
+  let html; try{ html=chatBodyHTML(ag, S.threadRef||null, meRole()); }catch(e){ return; }
+  if(html==null || html===realBody.innerHTML) return;
+  const atBottom=(realBody.scrollHeight-realBody.scrollTop-realBody.clientHeight)<40;
+  const prev=realBody.scrollTop;
+  realBody.innerHTML=html;
+  realBody.scrollTop=atBottom?realBody.scrollHeight:prev;
+}
+
 /* ════════════════════ 自動更新・リアルタイム（本番のみ） ════════════════════ */
 let _pollT=null, _msgT=null, _rtDebounce=null;
 function startAutoRefresh(){
@@ -2277,8 +2290,10 @@ function _commitFreshInner(fresh, opts){
   if(!busy && !typing){
     silentRerender();  // 見えない静かな更新（スクロール・フォーカス保持、アニメなし）
     if(draft!=null){ const mi=document.getElementById('msgInput'); if(mi && document.activeElement!==mi){ mi.value=draft; if(focused){ mi.focus({preventScroll:true}); try{ mi.setSelectionRange(caret,caret); }catch(e){} } } }
+  } else if(!busy && S.view==='messages' && aeEl && aeEl.id==='msgInput'){
+    refreshChatBodyOnly();  // 入力中でもメッセージ部分だけ更新（入力欄・変換・カーソルは保持）
   } else {
-    _pendingRerender=true;  // 入力中・モーダル中は保留し、離脱時/閉じた瞬間に反映
+    _pendingRerender=true;  // 閉じた瞬間に反映
   }
   updateNavCounts();
   if(newMsgs>0) notifyNewMessages(newMsgs);
@@ -3246,15 +3261,9 @@ function threadCtxHeader(ag, viewer, curRef){
     </div>`:''}
   </div>`;
 }
-function renderConversation(ag, viewer){
-  // 現在のサブスレッド（S.threadRef）。未指定なら全体連絡
-  const curRef = S.threadRef || null;
-  markReadSub(ag, curRef, viewer); save(); updateNavCounts();
-  const a=agency(ag);
-  setHeader('連絡', viewer==='kanoa'?(a?a.name:ag):'KANOA 事務局', '');
+function chatBodyHTML(ag, curRef, viewer){
   const ms=subThread(ag, curRef);
   const lastOutRead = (()=>{ for(let i=ms.length-1;i>=0;i--){ if(ms[i].from===viewer && !ms[i].deleted) return ms[i].read?ms[i].id:null; } return null; })();
-  const pinned=ms.filter(m=>m.pinned && !m.deleted);
   let body='', lastDay='';
   if(!ms.length){
     const r=curRef?DB.referrals.find(x=>x.id===curRef):null;
@@ -3277,6 +3286,18 @@ function renderConversation(ag, viewer){
     else { inner=`<div class="msg ${out?'msg-out':'msg-in'}" data-mid="${m.id}">${quote}${renderMsgText(m.text, ag)}${edited}<div class="msg-time">${esc(m.ts.slice(11,16))}</div></div>`; }
     return `${d}<div class="msg-wrap ${out?'out':'in'}" id="mw-${m.id}">${menuBtn}<div style="display:flex;flex-direction:column;${out?'align-items:flex-end':'align-items:flex-start'};min-width:0">${inner}${reacts}</div></div>${receipt}`;
   }).join(''); }
+  return body;
+}
+
+function renderConversation(ag, viewer){
+  // 現在のサブスレッド（S.threadRef）。未指定なら全体連絡
+  const curRef = S.threadRef || null;
+  markReadSub(ag, curRef, viewer); save(); updateNavCounts();
+  const a=agency(ag);
+  setHeader('連絡', viewer==='kanoa'?(a?a.name:ag):'KANOA 事務局', '');
+  const ms=subThread(ag, curRef);
+  const pinned=ms.filter(m=>m.pinned && !m.deleted);
+  const body=chatBodyHTML(ag, curRef, viewer);
   const c=document.getElementById('content');
   c.style.padding='0';
   const replyMsg = S.replyTo?ms.find(x=>x.id===S.replyTo):null;
@@ -5063,8 +5084,6 @@ document.addEventListener('keydown', e=>{
   else if(loginTab==='kanoa'){ const b=document.querySelector('[data-act="login-kanoa"]'); b&&b.click(); }
   else { const b=document.querySelector('[data-act="apply-submit"]'); b&&b.click(); }
 });
-/* チャット入力欄から離れたら、入力中に保留していた新着をすぐ反映 */
-document.addEventListener('focusout', e=>{ if(e.target && e.target.id==='msgInput'){ setTimeout(flushPendingRerender, 0); } });
 /* live referral search */
 document.addEventListener('input', e=>{
   if(e.target.id==='rSearch'){ rFilter.q=e.target.value; renderRefTable(); }
