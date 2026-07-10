@@ -2271,7 +2271,7 @@ function _commitFreshInner(fresh, opts){
   // 再描画してよいか：モーダル/ドロワー中・フォーム入力中（連絡欄は除く）は保留
   const busy = document.querySelector('.modal.on, .drawer.on, .overlay.on');
   const aeEl=document.activeElement;
-  const typing = aeEl && /^(INPUT|TEXTAREA|SELECT)$/.test(aeEl.tagName) && aeEl.id!=='msgInput';
+  const typing = aeEl && /^(INPUT|TEXTAREA|SELECT)$/.test(aeEl.tagName);
   if(!busy && !typing){
     silentRerender();  // 見えない静かな更新（スクロール・フォーカス保持、アニメなし）
     if(draft!=null){ const mi=document.getElementById('msgInput'); if(mi && document.activeElement!==mi){ mi.value=draft; if(focused){ mi.focus({preventScroll:true}); try{ mi.setSelectionRange(caret,caret); }catch(e){} } } }
