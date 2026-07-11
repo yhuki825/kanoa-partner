@@ -933,7 +933,7 @@ const DEMO_MODE = !CONFIG.SB_URL;
    ・テーブル定義: relay-schema.sql / 手順: IMPLEMENTATION.md・左下「実装ガイド」。 */
 const SUPA = (()=>{
   let sb=null, syncT=null;
-  const slice16=s=>(s||'').slice(0,16).replace('T',' ');
+  const slice16=s=>TZ_toLocal(s);   // UTC → 端末の時間帯へ変換して表示用に保持
   // ── camel(アプリ) ⇄ snake(DB) マッピング ──
   const fromAgency=r=>({id:r.id,name:r.name,contact:r.contact,email:r.email,status:r.status,source:r.source,joined:r.joined,code:r.code,special:r.special||'',license:!!r.license,bank:r.bank||'',payRoute:r.pay_route||'A',pwHash:r.pw_hash||null,inviteToken:r.invite_token||null,inviteIssuedAt:r.invite_issued_at||null,inviteUsedAt:r.invite_used_at||null});
   const toAgency  =a=>({id:a.id,name:a.name,contact:a.contact,email:a.email,status:a.status,source:a.source,joined:a.joined||null,code:a.code||null,special:a.special||null,license:!!a.license,bank:a.bank||null,pay_route:a.payRoute||'A',pw_hash:a.pwHash||null,invite_token:a.inviteToken||null,invite_issued_at:a.inviteIssuedAt||null,invite_used_at:a.inviteUsedAt||null});
@@ -941,9 +941,9 @@ const SUPA = (()=>{
   const toProject  =p=>({id:p.id,name:p.name,client:p.client,logo:p.logo,color:p.color,status:p.status,position:p.position,employment:p.employment,salary:p.salary,location:p.location,summary:p.summary,conditions:p.conditions,requirements:p.requirements||[],flow:p.flow||[],reward_type:p.rewardType,referral_reward:p.referralReward||0,success_reward:p.successReward||0,client_fee:p.clientFee||0,headcount:p.headcount,seminar:p.seminar,pass_note:p.passNote,case_study:p.caseStudy,detail:{rewardModel:p.rewardModel||null,baseSalaryByArea:p.baseSalaryByArea||null,docReqs:p.docReqs||null,companyOverview:p.companyOverview||null,incomeRange:p.incomeRange||null,incentives:p.incentives||null,careerPath:p.careerPath||null,careerNote:p.careerNote||null,selection:p.selection||null,preTasks:p.preTasks||null,preDocs:p.preDocs||null,preNote:p.preNote||null,interviewTips:p.interviewTips||null,faq:p.faq||null,links:p.links||null,rewardFormula:p.rewardFormula||null,rewardExample:p.rewardExample||null,refundPolicy:p.refundPolicy||null}});
   const fromAssign=r=>({pj:r.project_id,ag:r.agency_id,published:r.published,refOv:r.ref_override,sucOv:r.suc_override});
   const toAssign  =a=>({project_id:a.pj,agency_id:a.ag,published:!!a.published,ref_override:a.refOv??null,suc_override:a.sucOv??null});
-  const fromIntake=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kana||'',phone:r.phone||'',email:r.email||'',address:r.address||'',area:r.area||'',src:r.source||'',company:r.company||'',note:r.note||'',docs:Array.isArray(r.docs)?r.docs:(r.docs?JSON.parse(r.docs):[]),source_type:r.source_type||'form',created:(r.created_at||'').slice(0,16).replace('T',' ')||nowTS()});
+  const fromIntake=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kana||'',phone:r.phone||'',email:r.email||'',address:r.address||'',area:r.area||'',src:r.source||'',company:r.company||'',note:r.note||'',docs:Array.isArray(r.docs)?r.docs:(r.docs?JSON.parse(r.docs):[]),source_type:r.source_type||'form',created:TZ_toLocal(r.created_at)||nowTS()});
 const toIntake=r=>({id:r.id,project_id:r.pj||null,agency_id:r.ag,name:r.name,kana:r.kana||null,phone:r.phone||null,email:r.email||null,address:r.address||null,area:r.area||null,source:r.src||null,company:r.company||null,note:r.note||null,docs:JSON.stringify(r.docs||[]),source_type:r.source_type||'form'});
-const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kana,phone:r.phone,email:r.email,address:r.address,area:r.area,src:r.source_company||'',resigned:!!r.resigned,resignedOn:r.resigned_on||null,resignFraud:!!r.resign_fraud,resignConfirmed:!!r.resign_confirmed,status:r.status,session:r.session||'—',joined:r.joined_on||'',created:(r.created_at||'').slice(0,10),note:r.note||'',docs:[],spi:r.spi_status||'none',compliance:r.compliance_status||'none',seenK:r.seen_kanoa!==false,docs:[]});
+const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kana,phone:r.phone,email:r.email,address:r.address,area:r.area,src:r.source_company||'',resigned:!!r.resigned,resignedOn:r.resigned_on||null,resignFraud:!!r.resign_fraud,resignConfirmed:!!r.resign_confirmed,status:r.status,session:r.session||'—',joined:r.joined_on||'',created:TZ_toLocalDay(r.created_at),note:r.note||'',docs:[],spi:r.spi_status||'none',compliance:r.compliance_status||'none',seenK:r.seen_kanoa!==false,docs:[]});
   const toRef  =r=>({id:r.id,project_id:r.pj,agency_id:r.ag,name:r.name,kana:r.kana,phone:r.phone,email:r.email,address:r.address,area:r.area,source_company:r.src||null,resigned:!!r.resigned,resigned_on:r.resignedOn||null,resign_fraud:!!r.resignFraud,resign_confirmed:!!r.resignConfirmed,status:r.status,session:r.session==='—'?null:r.session,joined_on:r.joined||null,note:r.note||null,spi_status:r.spi||'none',compliance_status:r.compliance||'none',seen_kanoa:r.seenK!==false});
   const fromReflog=r=>({id:r.id,refId:r.ref_id,ts:r.ts||'',by:r.by_name||'',byRole:r.by_role||'',action:r.action||'',detail:r.detail||''});
   const toReflog=l=>({id:l.id,ref_id:l.refId,ts:l.ts||'',by_name:l.by||'',by_role:l.byRole||'',action:l.action||'',detail:l.detail||''});
@@ -951,7 +951,7 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
   const toInvoice=v=>({id:v.id,no:v.no,agency_id:v.agId,status:v.status,items:v.items||[],subtotal:v.subtotal||0,tax:v.tax||0,total:v.total||0,issued_on:v.issuedOn||null,submitted_on:v.submittedOn||null,decided_on:v.decidedOn||null,paid_on:v.paidOn||null,reject_reason:v.rejectReason||null,history:v.history||[]});
   const fromMsg=r=>({id:r.id,ag:r.agency_id,from:r.sender,text:r.body,ts:slice16(r.created_at),tsr:r.created_at||'',read:r.read,refId:r.ref_id,replyTo:r.reply_to,reactions:r.reactions||[],mentions:r.mentions||[],stamp:r.stamp,pinned:r.pinned,edited:r.edited,deleted:r.deleted});
   const toMsg  =m=>({id:m.id,agency_id:m.ag,sender:m.from,body:m.text,ref_id:m.refId||null,reply_to:m.replyTo||null,reactions:m.reactions||[],mentions:m.mentions||[],stamp:m.stamp||null,pinned:!!m.pinned,edited:!!m.edited,deleted:!!m.deleted,read:!!m.read});
-  const fromMember=r=>({id:r.id,org:r.org,name:r.name,email:r.email,title:r.title,created:(r.created_at||'').slice(0,10)});
+  const fromMember=r=>({id:r.id,org:r.org,name:r.name,email:r.email,title:r.title,created:TZ_toLocalDay(r.created_at)});
   const toMember  =m=>({id:m.id,org:m.org,name:m.name,email:m.email||null,title:m.title||null});
   const fromTask=r=>({id:r.id,owner:r.owner,from:r.from_owner||r.owner,ag:r.agency_id,refId:r.ref_id,text:r.body,done:r.done,due:r.due||'',created:slice16(r.created_at)});
   const toTask  =t=>({id:t.id,owner:t.owner,from_owner:t.from||t.owner,agency_id:t.ag||null,ref_id:t.refId||null,body:t.text,done:!!t.done,due:t.due||null});
@@ -985,7 +985,7 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
       assignments:(asn.data||[]).map(fromAssign), referrals:(refs.data||[]).map(fromRef),
       messages:(msgs.data||[]).map(fromMsg), members:(mem.data||[]).map(fromMember),
       tasks:(tsk.data||[]).map(fromTask), activity:[], invoices:invData.map(fromInvoice), reflog:logData.map(fromReflog), intake:intakeData.map(fromIntake),
-      logins:(llogs.data||[]).map(r=>({id:r.id,ag:r.agency_id,at:(r.created_at||'').slice(0,16).replace('T',' '),ok:r.success,via:r.method||'パスワード'})) };
+      logins:(llogs.data||[]).map(r=>({id:r.id,ag:r.agency_id,at:TZ_toLocal(r.created_at),ok:r.success,via:r.method||'パスワード'})) };
     const byRef={}; d.referrals.forEach(r=>byRef[r.id]=r);
     (docs.data||[]).forEach(x=>{ const r=byRef[x.referral_id]; if(r) r.docs.push({id:x.id,name:x.name,size:x.size,type:x.mime,kind:x.kind,uploaded:slice16(x.created_at),path:x.storage_path}); });
     return d;
@@ -1217,27 +1217,39 @@ const AG_COLORS=['#4f46e5','#0ea5e9','#0d9488','#16a34a','#d97706','#db2777','#7
 function agColor(id){ let h=0; const s=String(id||''); for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; return AG_COLORS[h%AG_COLORS.length]; }
 function agAvatar(a,size){ const s=size||32; return `<div style="width:${s}px;height:${s}px;border-radius:${Math.round(s*0.28)}px;background:${agColor(a.id)};color:#fff;display:grid;place-items:center;font-weight:700;font-size:${Math.round(s*0.42)}px;flex-shrink:0">${esc((a.name||'?').slice(0,1))}</div>`; }
 const uid = p => p + '-' + Math.random().toString(36).slice(2,7);
-const todayISO = () => new Date().toISOString().slice(0,10);
+const todayISO = () => TZ_toLocalDay(new Date());
 function joinedYM(r){ if(!r||!r.joined) return ''; const p=r.joined.slice(0,7).split('-'); return p.length===2?`${p[0]}年${Number(p[1])}月`:''; }
 function joinedM(r){ if(!r||!r.joined) return '—'; const m=Number(r.joined.slice(5,7)); return m?m+'月':'—'; }
-const nowTS = () => new Date().toISOString().slice(0,16).replace('T',' ');
-/* 表示用：保存されているUTC時刻を、閲覧者の端末のタイムゾーン（日本なら日本時間）に変換する。
-   Slack/LINE等と同じ挙動。並び替えは tsr(正確な時刻) で行うため影響しない。 */
-function msgDate(m){
-  const raw=(m&&(m.tsr||m.ts))||'';
-  if(!raw) return null;
-  let s=String(raw);
-  if(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(s)) s=s.replace(' ','T')+':00Z';  // 旧形式(UTC)を補完
-  const d=new Date(s);
+/* ── 時刻の共通処理 ──────────────────────────────
+   DBには常にUTCで保存される。表示は「見る人の端末の時間帯」に変換する（Slack/LINEと同じ）。
+   TZ_toLocal: UTC文字列 → 端末時刻の 'YYYY-MM-DD HH:MM'
+   TZ_toLocalDay: UTC文字列 → 端末時刻の 'YYYY-MM-DD'                        */
+const _p2 = n => String(n).padStart(2,'0');
+function _tzParse(s){
+  if(!s) return null;
+  if(s instanceof Date) return isNaN(s.getTime())?null:s;
+  let t=String(s).trim(); if(!t) return null;
+  // 'YYYY-MM-DD HH:MM(:SS)' でタイムゾーン表記が無い場合はUTCとみなす（DB由来のため）
+  if(/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?(\.\d+)?$/.test(t)) t=t.replace(' ','T')+'Z';
+  const d=new Date(t);
   return isNaN(d.getTime())?null:d;
 }
-const _p2=n=>String(n).padStart(2,'0');
-/* 例: 2026-07-10 */
-function msgDay(m){ const d=msgDate(m); if(!d) return (m&&m.ts||'').slice(0,10); return d.getFullYear()+'-'+_p2(d.getMonth()+1)+'-'+_p2(d.getDate()); }
-/* 例: 20:30 */
-function msgHM(m){ const d=msgDate(m); if(!d) return (m&&m.ts||'').slice(11,16); return _p2(d.getHours())+':'+_p2(d.getMinutes()); }
-/* 例: 07-10 20:30（スレッド一覧用） */
-function msgMDHM(m){ const d=msgDate(m); if(!d) return (m&&m.ts||'').slice(5,16); return _p2(d.getMonth()+1)+'-'+_p2(d.getDate())+' '+_p2(d.getHours())+':'+_p2(d.getMinutes()); }
+function TZ_toLocal(s){
+  const d=_tzParse(s); if(!d) return (s==null?'':String(s));
+  return d.getFullYear()+'-'+_p2(d.getMonth()+1)+'-'+_p2(d.getDate())+' '+_p2(d.getHours())+':'+_p2(d.getMinutes());
+}
+function TZ_toLocalDay(s){
+  const d=_tzParse(s); if(!d) return (s==null?'':String(s)).slice(0,10);
+  return d.getFullYear()+'-'+_p2(d.getMonth()+1)+'-'+_p2(d.getDate());
+}
+/* ローカル(端末)時刻で 'YYYY-MM-DD HH:MM' を作る（UTCではなく端末時刻） */
+const nowTS = () => TZ_toLocal(new Date());
+/* 表示用（チャット）：保存時刻を端末の時間帯に変換して表示する。
+   並び替えは msgCmp(tsr) で行うため、表示変換は順序に影響しない。 */
+function msgDate(m){ return _tzParse((m&&(m.tsr||m.ts))||''); }
+function msgDay(m){ const d=msgDate(m); return d?TZ_toLocalDay(d):((m&&m.ts)||'').slice(0,10); }
+function msgHM(m){ const d=msgDate(m); return d?(_p2(d.getHours())+':'+_p2(d.getMinutes())):((m&&m.ts)||'').slice(11,16); }
+function msgMDHM(m){ const d=msgDate(m); return d?(_p2(d.getMonth()+1)+'-'+_p2(d.getDate())+' '+_p2(d.getHours())+':'+_p2(d.getMinutes())):((m&&m.ts)||'').slice(5,16); }
 function msgTime(m){ let s=(m&&(m.tsr||m.ts))||''; if(!s) return 0; s=String(s); if(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(s)) s=s.replace(' ','T')+':00Z'; const t=Date.parse(s); return isNaN(t)?0:t; }
 function msgCmp(a,b){ const d=msgTime(a)-msgTime(b); return d!==0?d:((a.id||'')<(b.id||'')?-1:1); }
 function thread(ag){ return DB.messages.filter(m=>m.ag===ag).sort(msgCmp); }
@@ -4763,7 +4775,7 @@ document.addEventListener('click', e=>{
       const name=val('apName'),contact=val('apContact'),email=val('apEmail');
       if(!name){ document.getElementById('liErr').textContent='会社名を入力してください'; break; }
       DB.agencies.push({id:uid('AG'),name,contact,email,status:'pending',source:'applied',joined:todayISO()});
-      DB.activity.unshift({ts:new Date().toISOString().slice(0,16).replace('T',' '),actor:contact||name,action:'掲載申請',detail:`${name} が掲載申請`});
+      DB.activity.unshift({ts:nowTS(),actor:contact||name,action:'掲載申請',detail:`${name} が掲載申請`});
       save(); loginTab='agency'; renderLogin();
       toast('申請を送信しました。承認をお待ちください'); break;
     }
@@ -5183,7 +5195,7 @@ function saveReferral(pjId){
   r.src=val('mSrc')||'';  // 集客元（任意・空欄可）
   if(S.role==='agency') r.seenK=false;  // パートナー送客はKANOA未確認としてマーク
   DB.referrals.unshift(r);
-  DB.activity.unshift({ts:new Date().toISOString().slice(0,16).replace('T',' '),actor:S.role==='agency'?S.agencyId:'KANOA',action:'送客登録',detail:`${name} さんを送客`});
+  DB.activity.unshift({ts:nowTS(),actor:S.role==='agency'?S.agencyId:'KANOA',action:'送客登録',detail:`${name} さんを送客`});
   save(); closeModal(); updateNavCounts();
   // 連絡から追加した場合は、その候補者のスレッドを開いて連携を続けられるように
   if(S._newRefFromMsg){
@@ -5812,7 +5824,7 @@ function daysUntil(dateISO){
 function addMonths(dateISO, m){
   const d=new Date(dateISO); if(isNaN(d)) return null;
   d.setMonth(d.getMonth()+m);
-  return d.toISOString().slice(0,10);
+  return TZ_toLocalDay(d);
 }
 /* 在籍中の楽天入社者について、次の節目とその残日数を返す */
 function refundMilestone(r){
@@ -6334,7 +6346,7 @@ function inviteState(a){
 function inviteExpiryLabel(a){
   if(!a.inviteIssuedAt) return '';
   const exp=new Date(new Date(a.inviteIssuedAt).getTime()+INVITE_TTL_DAYS*86400000);
-  return exp.toISOString().slice(0,10);
+  return TZ_toLocalDay(exp);
 }
 
 /* KANOA: パートナー詳細に出す招待リンクのUI */
@@ -6555,7 +6567,7 @@ function bulkRegSubmit(){
     if(typeof logRef==='function') logRef(r.id,'送客登録','一括登録');
     n++;
   });
-  DB.activity.unshift({ts:new Date().toISOString().slice(0,16).replace('T',' '),actor:isK?'KANOA':S.agencyId,action:'一括送客登録',detail:`${n}名を送客登録`});
+  DB.activity.unshift({ts:nowTS(),actor:isK?'KANOA':S.agencyId,action:'一括送客登録',detail:`${n}名を送客登録`});
   save(); closeModal(); updateNavCounts();
   toast(`${n}名を一括登録しました`);
   render();
@@ -7946,7 +7958,7 @@ function issueSubAccount(company){
     id: 'SUB-'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),
     ag, company:norm,
     email: '', pw,
-    created: (typeof nowTS==='function'?nowTS():new Date().toISOString().slice(0,16))
+    created: (typeof nowTS==='function'?nowTS():TZ_toLocal(new Date()))
   };
   DB.subaccounts = DB.subaccounts||[];
   DB.subaccounts.push(acc);
