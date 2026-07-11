@@ -941,8 +941,8 @@ const SUPA = (()=>{
   const toProject  =p=>({id:p.id,name:p.name,client:p.client,logo:p.logo,color:p.color,status:p.status,position:p.position,employment:p.employment,salary:p.salary,location:p.location,summary:p.summary,conditions:p.conditions,requirements:p.requirements||[],flow:p.flow||[],reward_type:p.rewardType,referral_reward:p.referralReward||0,success_reward:p.successReward||0,client_fee:p.clientFee||0,headcount:p.headcount,seminar:p.seminar,pass_note:p.passNote,case_study:p.caseStudy,detail:{rewardModel:p.rewardModel||null,baseSalaryByArea:p.baseSalaryByArea||null,docReqs:p.docReqs||null,companyOverview:p.companyOverview||null,incomeRange:p.incomeRange||null,incentives:p.incentives||null,careerPath:p.careerPath||null,careerNote:p.careerNote||null,selection:p.selection||null,preTasks:p.preTasks||null,preDocs:p.preDocs||null,preNote:p.preNote||null,interviewTips:p.interviewTips||null,faq:p.faq||null,links:p.links||null,rewardFormula:p.rewardFormula||null,rewardExample:p.rewardExample||null,refundPolicy:p.refundPolicy||null}});
   const fromAssign=r=>({pj:r.project_id,ag:r.agency_id,published:r.published,refOv:r.ref_override,sucOv:r.suc_override});
   const toAssign  =a=>({project_id:a.pj,agency_id:a.ag,published:!!a.published,ref_override:a.refOv??null,suc_override:a.sucOv??null});
-  const fromIntake=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kana||'',phone:r.phone||'',email:r.email||'',address:r.address||'',area:r.area||'',src:r.source||'',company:r.company||'',note:r.note||'',docs:Array.isArray(r.docs)?r.docs:(r.docs?JSON.parse(r.docs):[]),source_type:r.source_type||'form',created:TZ_toLocal(r.created_at)||nowTS()});
-const toIntake=r=>({id:r.id,project_id:r.pj||null,agency_id:r.ag,name:r.name,kana:r.kana||null,phone:r.phone||null,email:r.email||null,address:r.address||null,area:r.area||null,source:r.src||null,company:r.company||null,note:r.note||null,docs:JSON.stringify(r.docs||[]),source_type:r.source_type||'form'});
+  const fromIntake=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kana||'',phone:r.phone||'',email:r.email||'',address:r.address||'',area:r.area||'',src:r.source||'',company:r.company||'',note:r.note||'',docs:Array.isArray(r.docs)?r.docs:(r.docs?JSON.parse(r.docs):[]),source_type:r.source_type||'form',status:r.status||'pending',decidedAt:r.decided_at?TZ_toLocal(r.decided_at):'',refId:r.ref_id||'',rejectNote:r.reject_note||'',created:TZ_toLocal(r.created_at)||nowTS()});
+const toIntake=r=>({id:r.id,project_id:r.pj||null,agency_id:r.ag,name:r.name,kana:r.kana||null,phone:r.phone||null,email:r.email||null,address:r.address||null,area:r.area||null,source:r.src||null,company:r.company||null,note:r.note||null,docs:JSON.stringify(r.docs||[]),source_type:r.source_type||'form',status:r.status||'pending',decided_at:r.decidedAtISO||null,ref_id:r.refId||null,reject_note:r.rejectNote||null});
 const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kana,phone:r.phone,email:r.email,address:r.address,area:r.area,src:r.source_company||'',resigned:!!r.resigned,resignedOn:r.resigned_on||null,resignFraud:!!r.resign_fraud,resignConfirmed:!!r.resign_confirmed,status:r.status,session:r.session||'—',joined:r.joined_on||'',created:TZ_toLocalDay(r.created_at),note:r.note||'',docs:[],spi:r.spi_status||'none',compliance:r.compliance_status||'none',seenK:r.seen_kanoa!==false,docs:[]});
   const toRef  =r=>({id:r.id,project_id:r.pj,agency_id:r.ag,name:r.name,kana:r.kana,phone:r.phone,email:r.email,address:r.address,area:r.area,source_company:r.src||null,resigned:!!r.resigned,resigned_on:r.resignedOn||null,resign_fraud:!!r.resignFraud,resign_confirmed:!!r.resignConfirmed,status:r.status,session:r.session==='—'?null:r.session,joined_on:r.joined||null,note:r.note||null,spi_status:r.spi||'none',compliance_status:r.compliance||'none',seen_kanoa:r.seenK!==false});
   const fromReflog=r=>({id:r.id,refId:r.ref_id,ts:r.ts||'',by:r.by_name||'',byRole:r.by_role||'',action:r.action||'',detail:r.detail||''});
@@ -4894,6 +4894,8 @@ document.addEventListener('click', e=>{
     case 'bulk-import-wizard': openBulkImportWizard(); break;
     case 'intake-approve': { const pj=document.getElementById('intake-pj-'+t.dataset.id); approveIntake(t.dataset.id, pj?pj.value:''); break; }
     case 'intake-reject': rejectIntake(t.dataset.id); break;
+    case 'intake-unreject': unrejectIntake(t.dataset.id); break;
+    case 'intake-tab': intakeTab=t.dataset.tab; render(); break;
     case 'intake-doc': openIntakeDoc(t.dataset.ik, +t.dataset.di); break;
     case 'intake-import': openIntakeImport(); break;
     case 'form-share': _formShareProjs=null; openFormShare(); break;
@@ -7184,7 +7186,7 @@ function myIntake(){
 }
 
 /* 受信箱の件数（ナビバッジ用） */
-function intakeCount(){ return myIntake().length; }
+function intakeCount(){ return myIntake().filter(x=>(x.status||'pending')==='pending').length; }
 
 /* 1件を正式送客する（intake → referrals、選考会=entryとして登録） */
 function approveIntake(id, pjId){
@@ -7204,7 +7206,8 @@ function approveIntake(id, pjId){
   r.docs=Array.isArray(it.docs)?it.docs.slice():[];  // フォームの添付書類を引き継ぐ
   if(S.role==='agency') r.seenK=false;  // KANOA未確認マーク（NEWバッジ）
   DB.referrals.unshift(r);
-  DB.intake.splice(idx,1);
+  // 削除せず「送客済み」として履歴に残す
+  it.status='approved'; it.refId=r.id; it.decidedAt=nowTS(); it.decidedAtISO=new Date().toISOString();
   if(typeof logRef==='function') logRef(r.id,'送客登録','パートナー連携から選考会へ');
   // パートナー承認時はKANOAへ自動通知（要望2a）
   if(S.role==='agency'){
@@ -7218,16 +7221,33 @@ function approveIntake(id, pjId){
 
 /* 1件を見送る（受信箱から削除） */
 function rejectIntake(id){
-  const idx=(DB.intake||[]).findIndex(x=>x.id===id);
-  if(idx<0) return;
-  const it=DB.intake[idx];
-  DB.intake.splice(idx,1);
-  if(!DEMO_MODE){ try{ SUPA.delRow('intake','id',id); }catch(e){} }
+  const it=(DB.intake||[]).find(x=>x.id===id);
+  if(!it) return;
+  const note=prompt(`「${it.name}」さんを見送ります。\n理由があれば入力してください（任意・後から確認できます）`,'');
+  if(note===null) return;   // キャンセル
+  it.status='rejected'; it.rejectNote=(note||'').trim();
+  it.decidedAt=nowTS(); it.decidedAtISO=new Date().toISOString();
   save();
-  toast(`「${it.name}」さんを見送りました`);
+  toast(`「${it.name}」さんを見送りました（履歴に残ります）`);
+  render(); updateNavCounts();
+}
+/* 見送りを取り消して未対応に戻す */
+function unrejectIntake(id){
+  const it=(DB.intake||[]).find(x=>x.id===id);
+  if(!it) return;
+  it.status='pending'; it.rejectNote=''; it.decidedAt=''; it.decidedAtISO=null;
+  save(); toast(`「${it.name}」さんを未対応に戻しました`);
   render(); updateNavCounts();
 }
 
+/* パートナー連携：ステータス絞り込みの状態（未対応/送客済み/見送り/すべて） */
+let intakeTab = 'pending';
+function intakeStatus(x){ return x.status||'pending'; }
+function intakeByStatus(st){
+  const all=myIntake();
+  if(st==='all') return all;
+  return all.filter(x=>intakeStatus(x)===st);
+}
 /* 受信箱ビュー */
 function viewIntake(){
   setHeader('パートナー連携', '代理店・二次パートナーから届いた応募を確認し、選考会に進めるか選びます',
@@ -7235,8 +7255,10 @@ function viewIntake(){
       ? `<button class="btn btn-primary btn-sm" data-act="form-share" style="margin-right:8px">紹介フォームを発行</button><button class="btn btn-ghost btn-sm" data-act="intake-import" style="margin-right:8px">CSV取込</button>`
       : '');
   const c=document.getElementById('content');
-  const items=myIntake();
-  if(!items.length){
+  const allItems=myIntake();
+  const cPend=intakeByStatus('pending').length, cAppr=intakeByStatus('approved').length, cRej=intakeByStatus('rejected').length;
+  const items=intakeByStatus(intakeTab);
+  if(!allItems.length){
     c.innerHTML=`<div class="content-narrow"><div class="empty-state" style="text-align:center;padding:60px 20px">
       <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--line-2)" stroke-width="1.5" style="margin-bottom:14px"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg>
       <div style="font-weight:600;font-size:15px;margin-bottom:6px">まだ応募はありません</div>
@@ -7271,22 +7293,48 @@ function viewIntake(){
           ${(it.docs&&it.docs.length)?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:7px">${it.docs.map((d,di)=>`<button type="button" data-act="intake-doc" data-ik="${it.id}" data-di="${di}" style="display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border:1px solid var(--line);border-radius:7px;background:var(--surface);font-size:11px;cursor:pointer;color:var(--ink)">📎 ${esc(d.kind==='rireki'?'履歴書':d.kind==='shoku'?'職務経歴書':d.name)}</button>`).join('')}</div>`:''}
           <div class="cell-sub" style="font-size:11px;margin-top:5px;color:var(--muted)">受信: ${esc(it.created||'')}</div>
         </div>
-        ${S.role==='agency'?`<div style="display:flex;flex-direction:column;gap:7px;min-width:180px">
-          <select id="intake-pj-${it.id}" style="padding:7px 9px;border:1px solid var(--line);border-radius:8px;font-size:12px">
-            <option value="">案件を選択…</option>${projOpts}
-          </select>
-          <div style="display:flex;gap:7px">
-            <button class="btn btn-primary btn-sm" style="flex:1" data-act="intake-approve" data-id="${it.id}">選考会へ送客</button>
-            <button class="btn btn-ghost btn-sm" data-act="intake-reject" data-id="${it.id}">見送り</button>
-          </div>
-        </div>`:`<span class="cell-sub" style="font-size:11px">パートナーが選考中</span>`}
+        ${(()=>{ const st=intakeStatus(it);
+          if(st==='approved'){ const rr=(DB.referrals||[]).find(x=>x.id===it.refId);
+            return `<div style="min-width:180px;text-align:right">
+              <span class="tag" style="background:var(--g-bg);color:var(--g);font-weight:600">送客済み</span>
+              <div class="cell-sub" style="font-size:11px;margin-top:6px">${it.decidedAt?esc(it.decidedAt):''}</div>
+              ${rr?`<button class="btn btn-ghost btn-sm" data-act="open-ref" data-id="${rr.id}" style="margin-top:6px">送客先を見る</button>`:''}
+            </div>`; }
+          if(st==='rejected'){
+            return `<div style="min-width:180px;text-align:right">
+              <span class="tag" style="background:var(--r-bg);color:var(--r);font-weight:600">見送り</span>
+              <div class="cell-sub" style="font-size:11px;margin-top:6px">${it.decidedAt?esc(it.decidedAt):''}</div>
+              ${it.rejectNote?`<div class="cell-sub" style="font-size:11px;margin-top:4px;color:var(--soft)">理由: ${esc(it.rejectNote)}</div>`:''}
+              ${S.role==='agency'?`<button class="btn btn-ghost btn-sm" data-act="intake-unreject" data-id="${it.id}" style="margin-top:6px">未対応に戻す</button>`:''}
+            </div>`; }
+          return S.role==='agency'?`<div style="display:flex;flex-direction:column;gap:7px;min-width:180px">
+            <select id="intake-pj-${it.id}" style="padding:7px 9px;border:1px solid var(--line);border-radius:8px;font-size:12px">
+              <option value="">案件を選択…</option>${projOpts}
+            </select>
+            <div style="display:flex;gap:7px">
+              <button class="btn btn-primary btn-sm" style="flex:1" data-act="intake-approve" data-id="${it.id}">選考会へ送客</button>
+              <button class="btn btn-ghost btn-sm" data-act="intake-reject" data-id="${it.id}">見送り</button>
+            </div>
+          </div>`:`<span class="cell-sub" style="font-size:11px">パートナーが選考中</span>`;
+        })()}
       </div>
     </div>`;
   }).join('');
+  const tab=(k,label,n)=>`<button type="button" data-act="intake-tab" data-tab="${k}" style="background:none;border:none;cursor:pointer;padding:8px 2px;margin-right:20px;font-size:14px;white-space:nowrap;color:${intakeTab===k?'var(--ink)':'var(--soft)'};font-weight:${intakeTab===k?'700':'500'};border-bottom:2px solid ${intakeTab===k?'var(--accent)':'transparent'}">${label} <span style="font-weight:400">${n}</span></button>`;
+  const tabs=`<div style="display:flex;align-items:center;overflow-x:auto;border-bottom:1px solid var(--line);margin-bottom:14px">
+    ${tab('pending','未対応',cPend)}${tab('approved','送客済み',cAppr)}${tab('rejected','見送り',cRej)}${tab('all','すべて',allItems.length)}
+  </div>`;
+  const emptyMsg = intakeTab==='approved' ? 'まだ送客した応募はありません'
+                 : intakeTab==='rejected' ? 'まだ見送った応募はありません'
+                 : intakeTab==='pending'  ? '未対応の応募はありません（すべて対応済みです）'
+                 : '応募がありません';
   c.innerHTML=`<div class="content-narrow">
-    <div class="meta-row" style="margin-bottom:14px"><span class="meta-count">${items.length} 件の応募が届いています</span>
-      <span class="cell-sub">選考会に進める方を選んで送客してください。見送った方は履歴に残りません。</span></div>
-    ${rows}
+    ${tabs}
+    ${items.length
+      ? `<div class="meta-row" style="margin-bottom:14px"><span class="meta-count">${items.length} 件</span>
+           <span class="cell-sub">${intakeTab==='pending'?'選考会に進める方を選んで送客してください。見送った方も履歴に残ります。':intakeTab==='approved'?'選考会へ送客済みの応募です。':intakeTab==='rejected'?'見送った応募です。未対応に戻すこともできます。':'すべての応募です。'}</span></div>
+         ${rows}`
+      : `<div class="empty-state" style="text-align:center;padding:48px 20px"><div class="cell-sub">${emptyMsg}</div></div>`}
   </div>`;
 }
 
@@ -7300,7 +7348,7 @@ function addIntakeRows(objs, sourceType){
       id:uid('IK'), ag, pj:o.pj||'', name:String(o.name).trim(),
       kana:o.kana||'', phone:o.phone||'', email:o.email||'', address:o.address||'',
       area:o.area||'', src:o.src||'', company:o.company||'', note:o.note||'', docs:[],
-      source_type:sourceType||'form', created:nowTS()
+      source_type:sourceType||'form', status:'pending', created:nowTS()
     });
     n++;
   });
