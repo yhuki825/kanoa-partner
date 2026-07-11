@@ -1221,6 +1221,23 @@ const todayISO = () => new Date().toISOString().slice(0,10);
 function joinedYM(r){ if(!r||!r.joined) return ''; const p=r.joined.slice(0,7).split('-'); return p.length===2?`${p[0]}年${Number(p[1])}月`:''; }
 function joinedM(r){ if(!r||!r.joined) return '—'; const m=Number(r.joined.slice(5,7)); return m?m+'月':'—'; }
 const nowTS = () => new Date().toISOString().slice(0,16).replace('T',' ');
+/* 表示用：保存されているUTC時刻を、閲覧者の端末のタイムゾーン（日本なら日本時間）に変換する。
+   Slack/LINE等と同じ挙動。並び替えは tsr(正確な時刻) で行うため影響しない。 */
+function msgDate(m){
+  const raw=(m&&(m.tsr||m.ts))||'';
+  if(!raw) return null;
+  let s=String(raw);
+  if(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(s)) s=s.replace(' ','T')+':00Z';  // 旧形式(UTC)を補完
+  const d=new Date(s);
+  return isNaN(d.getTime())?null:d;
+}
+const _p2=n=>String(n).padStart(2,'0');
+/* 例: 2026-07-10 */
+function msgDay(m){ const d=msgDate(m); if(!d) return (m&&m.ts||'').slice(0,10); return d.getFullYear()+'-'+_p2(d.getMonth()+1)+'-'+_p2(d.getDate()); }
+/* 例: 20:30 */
+function msgHM(m){ const d=msgDate(m); if(!d) return (m&&m.ts||'').slice(11,16); return _p2(d.getHours())+':'+_p2(d.getMinutes()); }
+/* 例: 07-10 20:30（スレッド一覧用） */
+function msgMDHM(m){ const d=msgDate(m); if(!d) return (m&&m.ts||'').slice(5,16); return _p2(d.getMonth()+1)+'-'+_p2(d.getDate())+' '+_p2(d.getHours())+':'+_p2(d.getMinutes()); }
 function msgTime(m){ let s=(m&&(m.tsr||m.ts))||''; if(!s) return 0; s=String(s); if(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(s)) s=s.replace(' ','T')+':00Z'; const t=Date.parse(s); return isNaN(t)?0:t; }
 function msgCmp(a,b){ const d=msgTime(a)-msgTime(b); return d!==0?d:((a.id||'')<(b.id||'')?-1:1); }
 function thread(ag){ return DB.messages.filter(m=>m.ag===ag).sort(msgCmp); }
@@ -2984,7 +3001,7 @@ function msgAgRow(a, pj){
     <div class="thread-av" style="background:${agColor(a.id)}">${esc(a.name.slice(0,1))}</div>
     <div class="thread-main"><div class="thread-name">${esc(a.name)}${un?'<span style="width:7px;height:7px;border-radius:50%;background:var(--accent);display:inline-block;margin-left:7px"></span>':''}</div>
       <div class="thread-last" style="${un?'color:var(--ink);font-weight:500':''}">${ctxLabel}${last?(last.from==='kanoa'?'自社: ':'')+esc(last.text):(pj?'この案件のやり取りはまだありません':'メッセージはまだありません')}</div></div>
-    <div class="thread-meta"><span class="thread-time">${last?esc(last.ts.slice(5,16)):''}</span>${un?`<span class="unread-dot">${un}</span>`:`<button class="copy-btn" data-act="mark-unread" data-ag="${a.id}" style="padding:3px 7px">未読に</button>`}</div>
+    <div class="thread-meta"><span class="thread-time">${last?esc(msgMDHM(last)):''}</span>${un?`<span class="unread-dot">${un}</span>`:`<button class="copy-btn" data-act="mark-unread" data-ag="${a.id}" style="padding:3px 7px">未読に</button>`}</div>
   </div>`;
 }
 function msgCandRow(r){
@@ -3270,7 +3287,7 @@ function chatBodyHTML(ag, curRef, viewer){
     body=`<div class="chat-empty">${r?`「${esc(r.name)}」についてのスレッドです。`:''}<br>まだメッセージはありません。下の入力欄から送信できます。</div>`;
   }
   else { body=ms.map(m=>{
-    const day=m.ts.slice(0,10); let d=''; if(day!==lastDay){ lastDay=day; d=`<div class="msg-day">${day.replace(/-/g,'/')}</div>`; }
+    const day=msgDay(m); let d=''; if(day!==lastDay){ lastDay=day; d=`<div class="msg-day">${day.replace(/-/g,'/')}</div>`; }
     const out=(m.from===viewer);
     if(m.deleted){ return `${d}<div class="msg-wrap ${out?'out':'in'}"><div class="msg ${out?'msg-out':'msg-in'}"><span class="msg-deleted">送信を取り消しました</span></div></div>`; }
     let quote='';
@@ -3281,9 +3298,9 @@ function chatBodyHTML(ag, curRef, viewer){
     const receipt=(out && m.id===lastOutRead)?`<div class="msg-receipt">既読</div>`:'';
     const edited=m.edited?`<span class="msg-edited">編集済み</span>`:'';
     let inner;
-    if(m.stamp==='emoji'){ inner=`<div class="msg is-emoji" data-mid="${m.id}">${esc(m.text)}<div class="msg-time">${esc(m.ts.slice(11,16))}</div></div>`; }
-    else if(m.stamp){ inner=`<div class="msg is-stamp ${out?'msg-out':'msg-in'}" data-mid="${m.id}"><span class="stamp-pill">${esc(m.text)}</span><div class="msg-time" style="text-align:${out?'right':'left'}">${esc(m.ts.slice(11,16))}</div></div>`; }
-    else { inner=`<div class="msg ${out?'msg-out':'msg-in'}" data-mid="${m.id}">${quote}${renderMsgText(m.text, ag)}${edited}<div class="msg-time">${esc(m.ts.slice(11,16))}</div></div>`; }
+    if(m.stamp==='emoji'){ inner=`<div class="msg is-emoji" data-mid="${m.id}">${esc(m.text)}<div class="msg-time">${esc(msgHM(m))}</div></div>`; }
+    else if(m.stamp){ inner=`<div class="msg is-stamp ${out?'msg-out':'msg-in'}" data-mid="${m.id}"><span class="stamp-pill">${esc(m.text)}</span><div class="msg-time" style="text-align:${out?'right':'left'}">${esc(msgHM(m))}</div></div>`; }
+    else { inner=`<div class="msg ${out?'msg-out':'msg-in'}" data-mid="${m.id}">${quote}${renderMsgText(m.text, ag)}${edited}<div class="msg-time">${esc(msgHM(m))}</div></div>`; }
     return `${d}<div class="msg-wrap ${out?'out':'in'}" id="mw-${m.id}">${menuBtn}<div style="display:flex;flex-direction:column;${out?'align-items:flex-end':'align-items:flex-start'};min-width:0">${inner}${reacts}</div></div>${receipt}`;
   }).join(''); }
   return body;
