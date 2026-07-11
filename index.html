@@ -1020,6 +1020,20 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
       if(DB.intake&&DB.intake.length) await one('intake', DB.intake.map(toIntake));
     } finally { _syncing=false; }
   }
+  /* 送客を1件DBへ登録し、結果を返す。DBのユニーク制約（電話番号の重複）を確実に検知するため、
+     一括upsert(syncNow)に任せず、その場で書き込んで成否を確認する。
+     戻り値: null=成功 / {duplicate:true}=電話番号の重複 / {message}=その他のエラー */
+  async function insertReferral(r){
+    if(!sb) return null;   // デモ等
+    try{
+      const { error } = await sb.from('referrals').insert(toRef(r));
+      if(!error) return null;
+      const msg=(error.message||'')+' '+(error.details||'');
+      // 23505 = unique_violation（電話番号の一意制約）
+      if(error.code==='23505' || /duplicate key|uniq_referrals_phone/i.test(msg)) return {duplicate:true};
+      return {message: error.message||'保存に失敗しました'};
+    }catch(e){ return {message:(e&&e.message)||'保存に失敗しました'}; }
+  }
   async function delRow(table,col,val){ if(!sb) return; try{ await sb.from(table).delete().eq(col,val); }catch(e){ console.error(e); } }
   /* リアルタイム購読（postgres_changes）。RLSにより自分が見える行の変更のみ届く */
   let _rtCh=null;
@@ -1207,7 +1221,7 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     if(!sb) return;
     try{ await sb.from('login_logs').insert({agency_id:agId,success:!!success,method:method||'パスワード'}); }catch(e){ console.warn('login_log insert failed',e); }
   }
-  return { boot, ensureClient, signInPassword, signInOtp, signOut, resetPassword, updatePassword, partnerLogin, loginThen, loadAll, loadMessages, scheduleSync, syncNow, isBusy, delRow, uploadDoc, docUrl, removeDoc, insertLoginLog, subscribeRealtime, unsubscribeRealtime, setRealtimeAuth, forceReconnectRealtime };
+  return { boot, ensureClient, signInPassword, signInOtp, signOut, resetPassword, updatePassword, partnerLogin, loginThen, loadAll, loadMessages, scheduleSync, syncNow, isBusy, delRow, insertReferral, uploadDoc, docUrl, removeDoc, insertLoginLog, subscribeRealtime, unsubscribeRealtime, setRealtimeAuth, forceReconnectRealtime };
 })();
 
 const LS_KEY = 'kanoa_relay_v22';
@@ -5181,7 +5195,7 @@ function saveAgency(){
   else { closeModal(); toast(`招待メールを送信しました → ${email}`); }
   if(S.view==='agencies') viewAgencies();
 }
-function saveReferral(pjId){
+async function saveReferral(pjId){
   const name=val('mName'); if(!name){ toast('氏名を入力してください'); return; }
   const projEl=document.getElementById('mProj'); const proj = (projEl&&projEl.value) || pjId;
   const agEl=document.getElementById('mAg');
@@ -5200,6 +5214,8 @@ function saveReferral(pjId){
   r.src=val('mSrc')||'';  // 集客元（任意・空欄可）
   if(S.role==='agency') r.seenK=false;  // パートナー送客はKANOA未確認としてマーク
   DB.referrals.unshift(r);
+  // DBに確定登録（他社を含む電話番号の重複はここで確実に弾かれる）
+  if(!(await commitReferral(r, name))){ return; }
   DB.activity.unshift({ts:nowTS(),actor:S.role==='agency'?S.agencyId:'KANOA',action:'送客登録',detail:`${name} さんを送客`});
   save(); closeModal(); updateNavCounts();
   // 連絡から追加した場合は、その候補者のスレッドを開いて連携を続けられるように
@@ -6557,13 +6573,13 @@ function syncBulkRowsFromDom(){
   });
 }
 
-function bulkRegSubmit(){
+async function bulkRegSubmit(){
   syncBulkRowsFromDom();
   const isK=S.role==='kanoa';
   const valid = bulkRegRows.filter(r=>r.name && r.name.trim());
   if(!valid.length){ toast('氏名を入力した行がありません'); return; }
   let n=0; const skipped=[]; const badPhone=[];
-  valid.forEach(row=>{
+  for(const row of valid){
     const ag = isK ? 'AG-01' : S.agencyId;  // KANOA一括時は既定。通常はパートナー
     const _e=phoneError(row.phone||'', true);
     if(_e){ badPhone.push(row.name.trim()); return; }   // 電話番号が未入力/不正 → 登録しない
@@ -6574,9 +6590,18 @@ function bulkRegSubmit(){
     r.src=row.src||'';
     if(!isK) r.seenK=false;
     DB.referrals.unshift(r);
+    // DBに確定登録。重複ならこの1件だけスキップし、他の行は続行する
+    if(!DEMO_MODE){
+      const res=await SUPA.insertReferral(r);
+      if(res){
+        const i=DB.referrals.findIndex(x=>x.id===r.id); if(i>=0) DB.referrals.splice(i,1);
+        skipped.push(row.name.trim());
+        continue;
+      }
+    }
     if(typeof logRef==='function') logRef(r.id,'送客登録','一括登録');
     n++;
-  });
+  }
   DB.activity.unshift({ts:nowTS(),actor:isK?'KANOA':S.agencyId,action:'一括送客登録',detail:`${n}名を送客登録`});
   save(); closeModal(); updateNavCounts();
   const _msgs=[];
@@ -7080,20 +7105,21 @@ function bulkToPreview(){
   renderBulkWizard();
 }
 
-function bulkSubmitFinal(){
+async function bulkSubmitFinal(){
   const w=BULK_WZ;
   const isK=S.role==='kanoa';
   const existing=DB.referrals;
   let n=0; const skipped=[];
-  w.objects.forEach((o,idx)=>{
-    if(!w.included.has(idx)) return;
+  for(let idx=0; idx<w.objects.length; idx++){
+    const o=w.objects[idx];
+    if(!w.included.has(idx)) continue;
     const issues=validateBulkRow(o, idx, w.objects, existing);
-    if(issues.some(i=>i.level==='error')) return;
+    if(issues.some(i=>i.level==='error')) continue;
     const _pe=phoneError(o.phone||'', true);
-    if(_pe){ skipped.push((o.name||'').trim()); return; }   // 電話番号が未入力/不正 → 登録しない
+    if(_pe){ skipped.push((o.name||'').trim()); continue; }   // 電話番号が未入力/不正 → 登録しない
     const _pf=formatPhoneJP(o.phone||'');
     const _d=findPhoneDuplicate(_pf);
-    if(_d){ skipped.push((o.name||'').trim()); return; }    // 電話番号が既存と重複 → 登録しない
+    if(_d){ skipped.push((o.name||'').trim()); continue; }    // 電話番号が既存と重複 → 登録しない
     const ag = isK ? (DB.agencies[0]?DB.agencies[0].id:'AG-01') : S.agencyId;
     let pj = w.defaultProj;
     if(o.project){
@@ -7104,9 +7130,18 @@ function bulkSubmitFinal(){
     r.src=o.src||'';
     if(!isK) r.seenK=false;
     DB.referrals.unshift(r);
+    // DBに確定登録。重複ならこの1件だけスキップし、他の行は続行する
+    if(!DEMO_MODE){
+      const res=await SUPA.insertReferral(r);
+      if(res){
+        const i=DB.referrals.findIndex(x=>x.id===r.id); if(i>=0) DB.referrals.splice(i,1);
+        skipped.push((o.name||'').trim());
+        continue;
+      }
+    }
     if(typeof logRef==='function') logRef(r.id,'送客登録','CSV/Excel一括登録');
     n++;
-  });
+  }
   DB.activity.unshift({ts:nowTS(),actor:isK?'KANOA':S.agencyId,action:'CSV/Excel一括登録',detail:`${n}名を送客登録`});
   save(); updateNavCounts();
   BULK_WZ.step=4; BULK_WZ.resultCount=n; BULK_WZ.skippedDup=skipped;
@@ -7236,7 +7271,7 @@ function myIntake(){
 function intakeCount(){ return myIntake().filter(x=>(x.status||'pending')==='pending').length; }
 
 /* 1件を正式送客する（intake → referrals、選考会=entryとして登録） */
-function approveIntake(id, pjId){
+async function approveIntake(id, pjId){
   const idx=(DB.intake||[]).findIndex(x=>x.id===id);
   if(idx<0) return;
   const it=DB.intake[idx];
@@ -7257,6 +7292,8 @@ function approveIntake(id, pjId){
   r.docs=Array.isArray(it.docs)?it.docs.slice():[];  // フォームの添付書類を引き継ぐ
   if(S.role==='agency') r.seenK=false;  // KANOA未確認マーク（NEWバッジ）
   DB.referrals.unshift(r);
+  // DBに確定登録（他社を含む電話番号の重複はここで確実に弾かれる）
+  if(!(await commitReferral(r, it.name))){ return; }
   // 削除せず「送客済み」として履歴に残す
   it.status='approved'; it.refId=r.id; it.decidedAt=nowTS(); it.decidedAtISO=new Date().toISOString();
   if(typeof logRef==='function') logRef(r.id,'送客登録','パートナー連携から選考会へ');
@@ -8281,6 +8318,25 @@ function hasCrossAgencyDup(ref){
 }
 
 /* 自社内に同一人物の送客が既にあるか（登録ブロック用） */
+/* 送客をDBに確定登録する。DBのユニーク制約で弾かれたら、アプリ側からも取り消す。
+   これにより「画面では登録できたのにDBに無い」不整合を防ぐ。
+   戻り値: true=登録成功 / false=重複などで登録されなかった                      */
+async function commitReferral(r, label){
+  if(DEMO_MODE) return true;
+  const res = await SUPA.insertReferral(r);
+  if(!res) return true;                       // 成功
+  // 失敗 → アプリ側のデータからも取り除く（画面と DB を一致させる）
+  const i=(DB.referrals||[]).findIndex(x=>x.id===r.id);
+  if(i>=0) DB.referrals.splice(i,1);
+  if(DB.reflog) DB.reflog=DB.reflog.filter(l=>l.refId!==r.id);
+  save(); render(); updateNavCounts();
+  if(res.duplicate){
+    toast(`${label||r.name} さんの電話番号（${r.phone}）は既に送客済みです。二重登録はできません。`);
+  } else {
+    toast(`登録に失敗しました：${res.message}`);
+  }
+  return false;
+}
 /* ── 電話番号による二重登録チェック（全社横断・早い者勝ち）──────────────
    電話番号は本人に固有で表記ゆれが無いため、氏名は判定に使わない
    （氏名を条件に加えると表記ゆれ「山田太郎/ヤマダタロウ」ですり抜けるため）。
