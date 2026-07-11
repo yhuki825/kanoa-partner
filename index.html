@@ -4411,7 +4411,7 @@ function modalNewReferral(pjId, agId){
       <div class="field full"><label>氏名 *</label><input id="mName" placeholder="山田 太郎"></div>
       <div class="field"><label>フリガナ</label><input id="mKana" placeholder="ヤマダ タロウ"></div>
       <div class="field"><label>希望エリア</label><input id="mArea" placeholder="首都圏"></div>
-      <div class="field"><label>電話番号</label><input id="mPhone" placeholder="090-0000-0000"></div>
+      <div class="field"><label>電話番号 <span style="color:var(--r)">*</span></label><input id="mPhone" placeholder="090-0000-0000" inputmode="tel"><div class="cell-sub" style="font-size:11px;margin-top:3px">必須。ハイフンは自動で付きます</div></div>
       <div class="field"><label>メール</label><input id="mEmail" placeholder="you@example.com"></div>
       <div class="field full"><label>住所</label><input id="mAddress" placeholder="東京都〇〇区..."></div>
       <div class="field full"><label>集客元<span style="font-weight:400;color:var(--muted);font-size:11px">（任意・空欄でOK）</span></label><input id="mSrc" placeholder="例：自社サイト / ◯◯エージェント / 紹介 など"></div>
@@ -5186,14 +5186,17 @@ function saveReferral(pjId){
   const projEl=document.getElementById('mProj'); const proj = (projEl&&projEl.value) || pjId;
   const agEl=document.getElementById('mAg');
   const ag = S.role==='agency' ? S.agencyId : ((agEl&&agEl.value) || 'AG-01');
-  // 自社内の重複チェック（名前＋電話が一致する方が既にいたらブロック）
-  const _phone=val('mPhone');
-  const _dup=findOwnDuplicate(ag, name, _phone);
+  // 電話番号は必須。入力形式を検証し、ハイフン付きに自動整形して保存する
+  const _phoneErr=phoneError(val('mPhone'), true);
+  if(_phoneErr){ toast(_phoneErr); const _el=document.getElementById('mPhone'); if(_el) _el.focus(); return; }
+  const _phone=formatPhoneJP(val('mPhone'));
+  // 電話番号による重複チェック（全社横断・早い者勝ち）
+  const _dup=findPhoneDuplicate(_phone);
   if(_dup){
-    toast(`${name} さん（${_phone}）は既に送客済みです。二重登録はできません。`);
+    toast(dupMessage(_dup, name));
     return;
   }
-  const r=mk(proj,ag,name,val('mKana'),val('mPhone'),val('mEmail'),val('mAddress'),val('mArea'),'entry','—',todayISO());
+  const r=mk(proj,ag,name,val('mKana'),_phone,val('mEmail'),val('mAddress'),val('mArea'),'entry','—',todayISO());
   r.src=val('mSrc')||'';  // 集客元（任意・空欄可）
   if(S.role==='agency') r.seenK=false;  // パートナー送客はKANOA未確認としてマーク
   DB.referrals.unshift(r);
@@ -6559,10 +6562,15 @@ function bulkRegSubmit(){
   const isK=S.role==='kanoa';
   const valid = bulkRegRows.filter(r=>r.name && r.name.trim());
   if(!valid.length){ toast('氏名を入力した行がありません'); return; }
-  let n=0;
+  let n=0; const skipped=[]; const badPhone=[];
   valid.forEach(row=>{
     const ag = isK ? 'AG-01' : S.agencyId;  // KANOA一括時は既定。通常はパートナー
-    const r=mk(row.pj, ag, row.name.trim(), row.kana||'', row.phone||'', row.email||'', '', row.area||'', 'entry','—', todayISO());
+    const _e=phoneError(row.phone||'', true);
+    if(_e){ badPhone.push(row.name.trim()); return; }   // 電話番号が未入力/不正 → 登録しない
+    const _p=formatPhoneJP(row.phone||'');
+    const _d=findPhoneDuplicate(_p);
+    if(_d){ skipped.push(row.name.trim()); return; }    // 電話番号が既存と重複 → 登録しない
+    const r=mk(row.pj, ag, row.name.trim(), row.kana||'', _p, row.email||'', '', row.area||'', 'entry','—', todayISO());
     r.src=row.src||'';
     if(!isK) r.seenK=false;
     DB.referrals.unshift(r);
@@ -6571,7 +6579,10 @@ function bulkRegSubmit(){
   });
   DB.activity.unshift({ts:nowTS(),actor:isK?'KANOA':S.agencyId,action:'一括送客登録',detail:`${n}名を送客登録`});
   save(); closeModal(); updateNavCounts();
-  toast(`${n}名を一括登録しました`);
+  const _msgs=[];
+  if(skipped.length)  _msgs.push(`${skipped.length}名は電話番号が既に登録済み（${skipped.slice(0,2).join('、')}${skipped.length>2?' ほか':''}）`);
+  if(badPhone.length) _msgs.push(`${badPhone.length}名は電話番号が未入力/不正（${badPhone.slice(0,2).join('、')}${badPhone.length>2?' ほか':''}）`);
+  toast(_msgs.length ? `${n}名を登録しました。${_msgs.join(' / ')}` : `${n}名を一括登録しました`);
   render();
 }
 
@@ -6747,7 +6758,34 @@ function autoMapColumns(headers){
 }
 
 /* ── 電話番号の正規化（重複検出用） ── */
-function normPhone(p){ return String(p||'').replace(/[^0-9]/g,''); }
+function normPhone(p){
+  // 全角数字・全角ハイフンも半角化してから数字だけ残す（表記ゆれ対策）
+  const z=String(p||'').replace(/[０-９]/g, c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0));
+  return z.replace(/[^0-9]/g,'');
+}
+/* 電話番号を日本の一般的なハイフン付き表記に自動整形する。
+   例) 09012345678 → 090-1234-5678 / 0312345678 → 03-1234-5678 */
+function formatPhoneJP(p){
+  const d=normPhone(p);
+  if(!d) return '';
+  // 携帯・IP電話・フリーダイヤル（070/080/090/050/0120 等）: 3-4-4
+  if(/^(070|080|090|050)\d{8}$/.test(d)) return d.slice(0,3)+'-'+d.slice(3,7)+'-'+d.slice(7);
+  if(/^0120\d{6}$/.test(d))  return '0120-'+d.slice(4,7)+'-'+d.slice(7);
+  if(/^0800\d{7}$/.test(d))  return '0800-'+d.slice(4,7)+'-'+d.slice(7);
+  // 東京03・大阪06: 2-4-4
+  if(/^0[36]\d{8}$/.test(d)) return d.slice(0,2)+'-'+d.slice(2,6)+'-'+d.slice(6);
+  // その他の固定電話(10桁): 3-3-4（市外局番の桁数は地域差があるため近似）
+  if(/^0\d{9}$/.test(d))     return d.slice(0,3)+'-'+d.slice(3,6)+'-'+d.slice(6);
+  return d;   // 想定外の桁数はそのまま数字で返す（検証側で弾く）
+}
+/* 電話番号の妥当性チェック。OKなら null、NGならエラーメッセージを返す */
+function phoneError(p, required){
+  const d=normPhone(p);
+  if(!d) return required ? '電話番号を入力してください' : null;
+  if(!/^0/.test(d))           return '電話番号は0から始まる番号を入力してください';
+  if(d.length<10 || d.length>11) return '電話番号の桁数が正しくありません（10桁または11桁）';
+  return null;
+}
 function normEmail(e){ return String(e||'').trim().toLowerCase(); }
 
 /* ── 行データの検証 ──
@@ -6755,6 +6793,7 @@ function normEmail(e){ return String(e||'').trim().toLowerCase(); }
 function validateBulkRow(row, idx, allRows, existingRefs){
   const issues=[];
   if(!row.name || !String(row.name).trim()) issues.push({level:'error', msg:'氏名が未入力です'});
+  { const _pe=phoneError(row.phone||'', true); if(_pe) issues.push({level:'error', msg:_pe}); }
   if(row.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(row.email)) issues.push({level:'warn', msg:'メール形式が不正な可能性'});
   // 既存データとの重複
   if(row.email){
@@ -6763,7 +6802,9 @@ function validateBulkRow(row, idx, allRows, existingRefs){
   }
   if(row.phone){
     const np=normPhone(row.phone);
-    if(np.length>=10 && existingRefs.some(r=>normPhone(r.phone)===np)) issues.push({level:'warn', msg:'既存の候補者と同じ電話番号'});
+    // 電話番号の重複は二重登録なので登録対象外（全社横断・早い者勝ち）
+    if(np && existingRefs.some(r=>r.status!=='rejected' && r.status!=='declined' && normPhone(r.phone)===np))
+      issues.push({level:'error', msg:'この電話番号は既に送客済みです（二重登録不可）'});
   }
   // アップロードファイル内での重複（自分より前の行と同一）
   const dupInFile = allRows.slice(0,idx).some(r2=>
@@ -6975,6 +7016,7 @@ function bulkStep4(){
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#15803D" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
       </div>
       <div style="font-weight:700;font-size:16px;margin-bottom:6px">${w.resultCount}名を登録しました</div>
+      ${(w.skippedDup&&w.skippedDup.length)?`<div class="cell-sub" style="font-size:12px;margin-bottom:6px;color:var(--a)">${w.skippedDup.length}名は電話番号が既に登録済みのためスキップしました（${esc(w.skippedDup.slice(0,3).join("、"))}${w.skippedDup.length>3?" ほか":""}）</div>`:''}
       <div class="cell-sub">送客一覧から確認できます</div>
     </div>
     <div class="modal-actions"><button class="btn btn-primary" data-act="closemodal">閉じる</button></div>
@@ -7042,18 +7084,23 @@ function bulkSubmitFinal(){
   const w=BULK_WZ;
   const isK=S.role==='kanoa';
   const existing=DB.referrals;
-  let n=0;
+  let n=0; const skipped=[];
   w.objects.forEach((o,idx)=>{
     if(!w.included.has(idx)) return;
     const issues=validateBulkRow(o, idx, w.objects, existing);
     if(issues.some(i=>i.level==='error')) return;
+    const _pe=phoneError(o.phone||'', true);
+    if(_pe){ skipped.push((o.name||'').trim()); return; }   // 電話番号が未入力/不正 → 登録しない
+    const _pf=formatPhoneJP(o.phone||'');
+    const _d=findPhoneDuplicate(_pf);
+    if(_d){ skipped.push((o.name||'').trim()); return; }    // 電話番号が既存と重複 → 登録しない
     const ag = isK ? (DB.agencies[0]?DB.agencies[0].id:'AG-01') : S.agencyId;
     let pj = w.defaultProj;
     if(o.project){
       const m=w.projList.find(p=>(p.name||'').includes(o.project) || o.project.includes((p.name||'').replace(' パートナー送客','')));
       if(m) pj=m.id;
     }
-    const r=mk(pj, ag, o.name.trim(), o.kana||'', o.phone||'', o.email||'', o.address||'', o.area||'', 'entry','—', todayISO());
+    const r=mk(pj, ag, o.name.trim(), o.kana||'', _pf, o.email||'', o.address||'', o.area||'', 'entry','—', todayISO());
     r.src=o.src||'';
     if(!isK) r.seenK=false;
     DB.referrals.unshift(r);
@@ -7062,7 +7109,7 @@ function bulkSubmitFinal(){
   });
   DB.activity.unshift({ts:nowTS(),actor:isK?'KANOA':S.agencyId,action:'CSV/Excel一括登録',detail:`${n}名を送客登録`});
   save(); updateNavCounts();
-  BULK_WZ.step=4; BULK_WZ.resultCount=n;
+  BULK_WZ.step=4; BULK_WZ.resultCount=n; BULK_WZ.skippedDup=skipped;
   renderBulkWizard();
   render();
 }
@@ -7195,13 +7242,17 @@ function approveIntake(id, pjId){
   const it=DB.intake[idx];
   const pj = pjId || it.pj;
   if(!pj){ toast('登録先の案件を選んでください'); return; }
-  // 自社内の重複チェック（承認前）：同じ名前＋電話が既に自社にいたら登録しない
-  const _dup=findOwnDuplicate(it.ag, it.name, it.phone||'');
+  // 電話番号は必須（送客には本人特定が必要）。整形して引き継ぐ
+  const _pErr=phoneError(it.phone||'', true);
+  if(_pErr){ toast(`${it.name} さん: ${_pErr}（応募内容を確認してください）`); return; }
+  const _pFmt=formatPhoneJP(it.phone||'');
+  // 電話番号による重複チェック（全社横断・早い者勝ち）
+  const _dup=findPhoneDuplicate(_pFmt);
   if(_dup){
-    toast(`${it.name} さんは既に送客済みです。二重登録はできません。`);
+    toast(dupMessage(_dup, it.name));
     return;
   }
-  const r=mk(pj, it.ag, it.name, it.kana||'', it.phone||'', it.email||'', it.address||'', it.area||'', 'entry','—', todayISO());
+  const r=mk(pj, it.ag, it.name, it.kana||'', _pFmt, it.email||'', it.address||'', it.area||'', 'entry','—', todayISO());
   r.src=it.company||it.src||'';   // 紹介元＝入力された会社名
   r.docs=Array.isArray(it.docs)?it.docs.slice():[];  // フォームの添付書類を引き継ぐ
   if(S.role==='agency') r.seenK=false;  // KANOA未確認マーク（NEWバッジ）
@@ -7473,7 +7524,7 @@ function renderIntakeForm(agId, partnerName, projList){
           </div>`:''}
           ${ikField('お名前', 'ikfName', 'text', '山田 太郎', true)}
           ${ikField('フリガナ', 'ikfKana', 'text', 'ヤマダ タロウ', false)}
-          ${ikField('電話番号', 'ikfPhone', 'tel', '090-1234-5678', false)}
+          ${ikField('電話番号', 'ikfPhone', 'tel', '090-1234-5678', true)}
           ${ikField('メールアドレス', 'ikfEmail', 'email', 'taro@example.com', false)}
           ${ikField('希望エリア', 'ikfArea', 'text', '東京', false)}
           <div>
@@ -7543,6 +7594,10 @@ async function submitIntakeForm(agId, partnerName){
   if(!company){ if(err) err.textContent='御社名は必須です。'; return; }   // 会社名を必須化
   const name=val('ikfName');
   if(!name){ if(err) err.textContent='お名前は必須です。'; return; }
+  // 電話番号は必須（本人特定・二重応募防止のため）
+  const _pe=phoneError(val('ikfPhone'), true);
+  if(_pe){ if(err) err.textContent=_pe+'。'; const _el=document.getElementById('ikfPhone'); if(_el) _el.focus(); return; }
+  const phoneFmt=formatPhoneJP(val('ikfPhone'));
   const email=val('ikfEmail');
   if(email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ if(err) err.textContent='メールアドレスの形式をご確認ください。'; return; }
   const btn=document.getElementById('ikfSubmit');
@@ -7571,7 +7626,7 @@ async function submitIntakeForm(agId, partnerName){
     const selPj=val('ikfProject')||null;
     const rec={
       id:ikId, agency_id:agId, project_id:selPj, name,
-      kana:val('ikfKana')||null, phone:val('ikfPhone')||null, email:email||null,
+      kana:val('ikfKana')||null, phone:phoneFmt||null, email:email||null,
       address:null, area:val('ikfArea')||null, source:company, company:company,
       note:val('ikfNote')||null, docs:JSON.stringify(docs), source_type:'form'
     };
@@ -8226,6 +8281,27 @@ function hasCrossAgencyDup(ref){
 }
 
 /* 自社内に同一人物の送客が既にあるか（登録ブロック用） */
+/* ── 電話番号による二重登録チェック（全社横断・早い者勝ち）──────────────
+   電話番号は本人に固有で表記ゆれが無いため、氏名は判定に使わない
+   （氏名を条件に加えると表記ゆれ「山田太郎/ヤマダタロウ」ですり抜けるため）。
+   返り値: 既存の送客(referral) または null                                   */
+function findPhoneDuplicate(phone){
+  const p=normPhone(phone);
+  if(!p) return null;   // 電話番号が空なら判定不能（チェックしない）
+  return (DB.referrals||[]).find(r=>
+    r.status!=='rejected' && r.status!=='declined' && normPhone(r.phone)===p
+  ) || null;
+}
+/* 重複時にユーザーへ見せる文言。他社の個人情報は出さない（自社の場合のみ氏名を出す）*/
+function dupMessage(dup, name){
+  const own = (S.role==='kanoa') || (dup.ag===S.agencyId);
+  if(own){
+    const a=agency(dup.ag);
+    const who = (S.role==='kanoa' && a) ? `${a.name}が` : '';
+    return `この電話番号は既に登録済みです（${who}${dup.name} さん）。二重登録はできません。`;
+  }
+  return `この電話番号は既に他社が送客済みです。二重登録はできません。`;
+}
 function findOwnDuplicate(ag, name, phone){
   const target={name, phone};
   return DB.referrals.find(r=> r.ag===ag && r.status!=='rejected' && r.status!=='declined' && isSamePerson(r, target)) || null;
