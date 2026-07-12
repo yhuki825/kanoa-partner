@@ -8130,31 +8130,27 @@ async function issueTrackerLink(company){
   const norm=(company||'').trim();
   if(!norm){ toast('会社名がありません'); return; }
   if(DEMO_MODE){ toast('デモモードでは発行できません'); return; }
-
   const pw=(typeof genPw==='function')? genPw() : ('kanoa'+Math.random().toString(36).slice(2,8));
-  openModal(`
-    <div class="modal-head"><div class="modal-title">${esc(norm)} さまへの進捗確認リンク</div></div>
-    <div class="modal-body">
-      <div class="cell-sub" style="font-size:12.5px;margin-bottom:14px">
-        リンクと合言葉をお相手にお伝えください。ログイン不要で、<b>その会社がご紹介した方の進捗のみ</b>を閲覧できます（閲覧専用）。
-      </div>
-      <div class="field"><label>合言葉（お相手に伝えます）</label>
-        <input id="tkNewPw" value="${esc(pw)}">
-        <div class="cell-sub" style="font-size:11px;margin-top:3px">推測されにくい文字列にしてください。後から変更する場合は再発行します。</div>
-      </div>
-      <div class="field"><label>有効期限</label>
-        <select id="tkDays">
-          <option value="90">90日</option>
-          <option value="180">180日</option>
-          <option value="365">1年</option>
-          <option value="0">無期限</option>
-        </select>
-      </div>
-      <div id="tkIssueErr" style="color:var(--r);font-size:12px;min-height:16px"></div>
-      <div id="tkIssueOut"></div>
+  showModal(`
+    <div class="modal-title">${esc(norm)} さまへの進捗確認リンク</div>
+    <div class="modal-sub">リンクと合言葉をお相手にお伝えください。ログイン不要で、<b>その会社がご紹介した方の進捗のみ</b>を閲覧できます（閲覧専用）。</div>
+    <div class="field full">
+      <label>合言葉（お相手に伝えます）</label>
+      <input id="tkNewPw" value="${esc(pw)}">
     </div>
-    <div class="modal-foot">
-      <button class="btn btn-ghost" data-act="close-modal">閉じる</button>
+    <div class="field full">
+      <label>有効期限</label>
+      <select id="tkDays">
+        <option value="90">90日</option>
+        <option value="180">180日</option>
+        <option value="365">1年</option>
+        <option value="0">無期限</option>
+      </select>
+    </div>
+    <div id="tkIssueErr" style="color:var(--r);font-size:12px;min-height:16px"></div>
+    <div id="tkIssueOut"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" data-act="closemodal">閉じる</button>
       <button class="btn btn-primary" id="tkIssueBtn" data-act="tracker-issue-do" data-company="${esc(norm)}">リンクを発行</button>
     </div>`);
 }
@@ -8172,14 +8168,12 @@ async function doIssueTrackerLink(company){
   const url=location.origin+location.pathname+'?track='+res.token;
   const out=document.getElementById('tkIssueOut');
   if(out) out.innerHTML=`
-    <div class="panel" style="padding:12px;background:var(--g-bg);border:1px solid var(--g);margin-top:6px">
+    <div class="info-card" style="margin-top:10px">
       <div style="font-size:12px;font-weight:700;color:var(--g);margin-bottom:8px">発行しました。以下をお相手にお伝えください。</div>
-      <div class="field" style="margin-bottom:8px"><label>リンク</label>
-        <input id="tkUrl" readonly value="${esc(url)}" onclick="this.select()"></div>
-      <div class="field" style="margin-bottom:8px"><label>合言葉</label>
-        <input readonly value="${esc(pw.trim())}" onclick="this.select()"></div>
-      <button class="btn btn-primary btn-sm" data-act="tracker-copy" data-url="${esc(url)}" data-pw="${esc(pw.trim())}">リンクと合言葉をコピー</button>
-      <div class="cell-sub" style="font-size:11px;margin-top:8px">合言葉はこの画面を閉じると再表示できません（安全のため保存されません）。必要ならメモしてください。</div>
+      <div class="info-row"><span class="info-label">リンク</span><span class="info-val mono" style="font-size:11px">${esc(url)}</span><button class="copy-btn" data-act="copy" data-v="${esc(url)}">コピー</button></div>
+      <div class="info-row"><span class="info-label">合言葉</span><span class="info-val mono">${esc(pw.trim())}</span><button class="copy-btn" data-act="copy" data-v="${esc(pw.trim())}">コピー</button></div>
+      <div style="margin-top:10px"><button class="btn btn-primary btn-sm" data-act="tracker-copy" data-url="${esc(url)}" data-pw="${esc(pw.trim())}">まとめてコピー</button></div>
+      <div class="cell-sub" style="font-size:11px;margin-top:8px">合言葉は安全のため保存されません。この画面を閉じる前にお控えください。</div>
     </div>`;
   if(errEl) errEl.textContent='';
 }
