@@ -1034,6 +1034,36 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
       return {message: error.message||'保存に失敗しました'};
     }catch(e){ return {message:(e&&e.message)||'保存に失敗しました'}; }
   }
+  /* ── 二次パートナー向け「閲覧リンク」──────────────────────────────
+     合言葉の照合とデータ取得はすべてサーバー側(RPC)で行う。
+     ブラウザには「正しい合言葉を送った場合の結果」しか返らないため、
+     リンクが流出しても合言葉が無ければ情報は見えない。                       */
+  async function trackerIssue(company, pw, days){
+    if(!sb) return {error:'未接続'};
+    const { data, error } = await sb.rpc('tracker_issue', {p_company:company, p_pw:pw, p_days:(days==null?90:days)});
+    if(error) return {error:error.message};
+    return {token:data};
+  }
+  async function trackerView(token, pw){
+    await ensureClient();
+    const { data, error } = await sb.rpc('tracker_view', {p_token:token, p_pw:pw});
+    if(error){
+      const m=(error.message||'');
+      if(/INVALID_PASSWORD/.test(m)) return {error:'BAD_PW'};
+      if(/INVALID_LINK/.test(m))     return {error:'BAD_LINK'};
+      return {error:m};
+    }
+    return {rows:data||[]};
+  }
+  async function trackerList(){
+    if(!sb) return [];
+    const { data } = await sb.from('tracker_links').select('token,company,active,expires_at,last_seen,created_at');
+    return data||[];
+  }
+  async function trackerRevoke(token){
+    if(!sb) return;
+    await sb.from('tracker_links').update({active:false}).eq('token',token);
+  }
   async function delRow(table,col,val){ if(!sb) return; try{ await sb.from(table).delete().eq(col,val); }catch(e){ console.error(e); } }
   /* リアルタイム購読（postgres_changes）。RLSにより自分が見える行の変更のみ届く */
   let _rtCh=null;
@@ -1221,7 +1251,7 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     if(!sb) return;
     try{ await sb.from('login_logs').insert({agency_id:agId,success:!!success,method:method||'パスワード'}); }catch(e){ console.warn('login_log insert failed',e); }
   }
-  return { boot, ensureClient, signInPassword, signInOtp, signOut, resetPassword, updatePassword, partnerLogin, loginThen, loadAll, loadMessages, scheduleSync, syncNow, isBusy, delRow, insertReferral, uploadDoc, docUrl, removeDoc, insertLoginLog, subscribeRealtime, unsubscribeRealtime, setRealtimeAuth, forceReconnectRealtime };
+  return { boot, ensureClient, signInPassword, signInOtp, signOut, resetPassword, updatePassword, partnerLogin, loginThen, loadAll, loadMessages, scheduleSync, syncNow, isBusy, delRow, insertReferral, trackerIssue, trackerView, trackerList, trackerRevoke, uploadDoc, docUrl, removeDoc, insertLoginLog, subscribeRealtime, unsubscribeRealtime, setRealtimeAuth, forceReconnectRealtime };
 })();
 
 const LS_KEY = 'kanoa_relay_v22';
@@ -4915,7 +4945,15 @@ document.addEventListener('click', e=>{
     case 'form-share': _formShareProjs=null; openFormShare(); break;
     case 'fshare-toggle': { const pj=t.dataset.pj; if(!_formShareProjs) _formShareProjs=new Set(); if(_formShareProjs.has(pj)) _formShareProjs.delete(pj); else _formShareProjs.add(pj); renderFormShareModal(); break; }
     case 'toggle-subpartner': { const k=t.dataset.key; _openSubPartner = (_openSubPartner===k)?null:k; render(); break; }
-    case 'issue-subacc': issueSubAccount(t.dataset.company); break;
+    case 'issue-subacc': issueTrackerLink(t.dataset.company); break;
+    case 'tracker-open': openTracker(t.dataset.token); break;
+    case 'tracker-issue-do': doIssueTrackerLink(t.dataset.company); break;
+    case 'tracker-copy': {
+      const txt='【進捗確認ページ】\n'+t.dataset.url+'\n\n【合言葉】\n'+t.dataset.pw;
+      navigator.clipboard.writeText(txt).then(()=>toast('コピーしました')).catch(()=>toast('コピーに失敗しました'));
+      break;
+    }
+    case 'tracker-reload': location.reload(); break;
     case 'save-subacc-email': { const acc=(DB.subaccounts||[]).find(x=>x.id===t.dataset.id); if(acc){ acc.email=(document.getElementById('subAccEmail').value||'').trim(); save(); toast('保存しました'); closeModal(); } break; }
     case 'copy-form-url': { const el=document.getElementById('formUrlInput'); if(el){ el.select(); try{ navigator.clipboard.writeText(el.value); toast('URLをコピーしました'); }catch(e){ document.execCommand('copy'); toast('URLをコピーしました'); } } break; }
     case 'intake-form-info': showIntakeFormInfo(); break;
@@ -7975,7 +8013,7 @@ function subPartnerCard(sp, isK){
         <div style="text-align:right">
           <div style="font-weight:700;font-size:16px">${sp.total}<span class="cell-sub" style="font-size:11px;font-weight:400">名</span></div>
           <div class="cell-sub" style="font-size:10.5px">入社 ${sp.joined}</div>
-          ${!isK?`<button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:10.5px;margin-top:4px" data-act="issue-subacc" data-company="${esc(sp.name)}">${subAccountFor(S.agencyId, sp.name)?'ログイン情報':'アカウント発行'}</button>`:''}
+          ${!isK?`<button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:10.5px;margin-top:4px" data-act="issue-subacc" data-company="${esc(sp.name)}">進捗確認リンクを発行</button>`:''}
         </div>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" style="transform:rotate(${open?'90':'0'}deg);transition:transform .15s"><path d="M9 18l6-6-6-6"/></svg>
       </div>
@@ -8086,6 +8124,66 @@ function subAccountFor(ag, company){
 }
 
 /* アカウント発行（一次パートナーが実行） */
+
+/* 二次パートナー向け「進捗確認リンク」を発行する（パートナー企業が操作） */
+async function issueTrackerLink(company){
+  const norm=(company||'').trim();
+  if(!norm){ toast('会社名がありません'); return; }
+  if(DEMO_MODE){ toast('デモモードでは発行できません'); return; }
+
+  const pw=(typeof genPw==='function')? genPw() : ('kanoa'+Math.random().toString(36).slice(2,8));
+  openModal(`
+    <div class="modal-head"><div class="modal-title">${esc(norm)} さまへの進捗確認リンク</div></div>
+    <div class="modal-body">
+      <div class="cell-sub" style="font-size:12.5px;margin-bottom:14px">
+        リンクと合言葉をお相手にお伝えください。ログイン不要で、<b>その会社がご紹介した方の進捗のみ</b>を閲覧できます（閲覧専用）。
+      </div>
+      <div class="field"><label>合言葉（お相手に伝えます）</label>
+        <input id="tkNewPw" value="${esc(pw)}">
+        <div class="cell-sub" style="font-size:11px;margin-top:3px">推測されにくい文字列にしてください。後から変更する場合は再発行します。</div>
+      </div>
+      <div class="field"><label>有効期限</label>
+        <select id="tkDays">
+          <option value="90">90日</option>
+          <option value="180">180日</option>
+          <option value="365">1年</option>
+          <option value="0">無期限</option>
+        </select>
+      </div>
+      <div id="tkIssueErr" style="color:var(--r);font-size:12px;min-height:16px"></div>
+      <div id="tkIssueOut"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" data-act="close-modal">閉じる</button>
+      <button class="btn btn-primary" id="tkIssueBtn" data-act="tracker-issue-do" data-company="${esc(norm)}">リンクを発行</button>
+    </div>`);
+}
+
+async function doIssueTrackerLink(company){
+  const errEl=document.getElementById('tkIssueErr');
+  const btn=document.getElementById('tkIssueBtn');
+  const pw=(document.getElementById('tkNewPw')||{}).value||'';
+  const days=parseInt((document.getElementById('tkDays')||{}).value||'90',10);
+  if(pw.trim().length<4){ if(errEl) errEl.textContent='合言葉は4文字以上にしてください'; return; }
+  if(btn){ btn.disabled=true; btn.textContent='発行中…'; }
+  const res=await SUPA.trackerIssue(company, pw.trim(), days);
+  if(btn){ btn.disabled=false; btn.textContent='リンクを発行'; }
+  if(res.error){ if(errEl) errEl.textContent='発行に失敗しました：'+res.error; return; }
+  const url=location.origin+location.pathname+'?track='+res.token;
+  const out=document.getElementById('tkIssueOut');
+  if(out) out.innerHTML=`
+    <div class="panel" style="padding:12px;background:var(--g-bg);border:1px solid var(--g);margin-top:6px">
+      <div style="font-size:12px;font-weight:700;color:var(--g);margin-bottom:8px">発行しました。以下をお相手にお伝えください。</div>
+      <div class="field" style="margin-bottom:8px"><label>リンク</label>
+        <input id="tkUrl" readonly value="${esc(url)}" onclick="this.select()"></div>
+      <div class="field" style="margin-bottom:8px"><label>合言葉</label>
+        <input readonly value="${esc(pw.trim())}" onclick="this.select()"></div>
+      <button class="btn btn-primary btn-sm" data-act="tracker-copy" data-url="${esc(url)}" data-pw="${esc(pw.trim())}">リンクと合言葉をコピー</button>
+      <div class="cell-sub" style="font-size:11px;margin-top:8px">合言葉はこの画面を閉じると再表示できません（安全のため保存されません）。必要ならメモしてください。</div>
+    </div>`;
+  if(errEl) errEl.textContent='';
+}
+
 function issueSubAccount(company){
   const ag = S.agencyId;
   const norm = (company||'').trim();
@@ -8403,9 +8501,102 @@ function crossDupBadge(r){
 }
 
 
+
+/* ════════════════════ 二次パートナー向け 進捗確認ページ（?track=xxx） ════════════════════
+   ログイン不要。リンク＋合言葉のみ。閲覧専用（書類提出・編集はできない）。
+   合言葉の照合と絞り込みはサーバー(RPC)側で行うため、合言葉なしでは情報が一切返らない。 */
+function renderTrackerGate(token){
+  hideBootSplash();
+  const wrap=document.getElementById('loginWrap'); if(wrap) wrap.style.display='none';
+  const app=document.getElementById('app');
+  if(app){ app.style.display='block'; app.classList.remove('on'); }
+  const host=app||document.body;
+  host.innerHTML=`
+  <div style="min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(130% 100% at 50% 0%,#ffffff,#f4f7fa)">
+    <div style="width:100%;max-width:420px">
+      <div style="text-align:center;margin-bottom:20px">
+        <div style="font-weight:800;font-size:20px;letter-spacing:.02em">KANOA</div>
+        <div style="font-size:13px;color:var(--soft);margin-top:4px">ご紹介いただいた方の進捗確認</div>
+      </div>
+      <div class="panel" style="padding:22px">
+        <div style="font-size:13px;color:var(--soft);margin-bottom:14px">担当者よりお伝えした<b>合言葉</b>を入力してください。</div>
+        <input id="tkPw" type="password" placeholder="合言葉" autocomplete="off"
+          style="width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:9px;font-size:14px;box-sizing:border-box">
+        <div id="tkErr" style="color:var(--r);font-size:12px;margin-top:8px;min-height:16px"></div>
+        <button id="tkBtn" class="btn btn-primary" style="width:100%;margin-top:6px" data-act="tracker-open" data-token="${esc(token)}">進捗を表示する</button>
+      </div>
+      <div style="text-align:center;font-size:11px;color:var(--soft);margin-top:14px">
+        このページは閲覧専用です。表示内容の取り扱いにはご注意ください。
+      </div>
+    </div>
+  </div>`;
+  const pw=document.getElementById('tkPw');
+  if(pw) pw.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); openTracker(token); } });
+}
+
+async function openTracker(token){
+  const errEl=document.getElementById('tkErr');
+  const btn=document.getElementById('tkBtn');
+  const pw=(document.getElementById('tkPw')||{}).value||'';
+  if(!pw){ if(errEl) errEl.textContent='合言葉を入力してください'; return; }
+  if(btn){ btn.disabled=true; btn.textContent='確認中…'; }
+  const res=await SUPA.trackerView(token, pw);
+  if(btn){ btn.disabled=false; btn.textContent='進捗を表示する'; }
+  if(res.error){
+    if(errEl) errEl.textContent =
+      res.error==='BAD_PW'   ? '合言葉が違います' :
+      res.error==='BAD_LINK' ? 'このリンクは無効か、有効期限が切れています' :
+      '表示できませんでした（' + res.error + '）';
+    return;
+  }
+  renderTrackerList(res.rows||[]);
+}
+
+function renderTrackerList(rows){
+  const LBL={entry:'送客済',screening:'書類選考',interview:'選考会',offer:'内定',joined:'入社',rejected:'見送り',declined:'辞退'};
+  const active=rows.filter(r=>r.status!=='rejected'&&r.status!=='declined').length;
+  const joined=rows.filter(r=>r.status==='joined').length;
+  const body = rows.length ? rows.map(r=>`<tr>
+      <td class="cell-strong">${esc(r.name)}</td>
+      <td><span class="tag" style="font-size:10px">${esc(r.project_name||'—')}</span></td>
+      <td style="text-align:center"><span class="badge bd-${esc(r.status)}">${esc(LBL[r.status]||r.status)}</span></td>
+      <td class="cell-sub">${esc(r.session||'—')}</td>
+      <td class="cell-sub">${esc(r.joined_on||'—')}</td>
+    </tr>`).join('')
+    : '<tr><td colspan="5" style="text-align:center;padding:28px"><span class="cell-sub">まだご紹介いただいた方はいません。</span></td></tr>';
+
+  const host=document.getElementById('app')||document.body;
+  host.innerHTML=`
+  <div style="min-height:100vh;background:var(--bg,#f6f8fa);padding:24px">
+    <div style="max-width:900px;margin:0 auto">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+        <div>
+          <div style="font-weight:800;font-size:18px">ご紹介いただいた方の進捗</div>
+          <div style="font-size:12px;color:var(--soft);margin-top:2px">閲覧専用ページ</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" data-act="tracker-reload">最新に更新</button>
+      </div>
+      <div class="kpi-grid" style="margin-bottom:16px">
+        ${kpi('ご紹介', rows.length+'<span class="unit">名</span>','var(--accent)')}
+        ${kpi('選考中', active+'<span class="unit">名</span>','var(--b)')}
+        ${kpi('入社', joined+'<span class="unit">名</span>','var(--g)')}
+      </div>
+      <div class="panel tbl-wrap"><table class="tbl"><thead><tr>
+        <th>お名前</th><th>案件</th><th style="text-align:center">選考状況</th><th>面談</th><th>入社日</th>
+      </tr></thead><tbody>${body}</tbody></table></div>
+      <div style="text-align:center;font-size:11px;color:var(--soft);margin-top:18px">
+        内容についてのお問い合わせは、担当のパートナー企業さまへお願いいたします。
+      </div>
+    </div>
+  </div>`;
+}
+
 /* boot */
 (function(){
   var _q=null; try{ _q=new URLSearchParams(location.search); }catch(e){}
+  // 二次パートナー向け 進捗確認リンク（ログイン不要・最優先）
+  var _track = _q && _q.get('track');
+  if(_track){ renderTrackerGate(_track); return; }
   var _special = !!(_q && (_q.get('form') || (_q.get('invite') && _q.get('token'))));
   if(DEMO_MODE){ CHECK_INVITE_THEN_LOGIN(); }
   else { if(_special) CHECK_INVITE_THEN_LOGIN(); SUPA.boot(); }
