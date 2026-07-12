@@ -2655,6 +2655,7 @@ function viewAgencies(){
 /* ════════════════════ KANOA: REFERRALS (cross) ════════════════════ */
 let rFilter={status:'',pj:'',ag:'',q:'',docMode:'all',sessTbd:false,sessFrom:'',sessTo:'',joinFrom:'',joinTo:'',joinMode:'all',crFrom:'',crTo:'',area:''}, rSort={k:'',d:1};
 let rFilterOpen=false; let rSel=new Set();
+let myRefTab='all';   // 自社の送客：ステータス絞り込み
 function sessionISO(r){ const s=(r.session||'').trim(); if(!s||s==='—') return '';
   let m=s.match(/(\d{4})-(\d{1,2})-(\d{1,2})/); if(m) return `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`;
   m=s.match(/(\d{1,2})[\/月](\d{1,2})/); if(m){ const y=new Date().getFullYear(); return `${y}-${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`; }
@@ -2977,9 +2978,22 @@ function viewAgencyProjectDetail(){
 function viewMyRefs(){
   setHeader('自社の送客', '送客した候補者の進捗',
     `<button class="btn btn-ghost btn-sm" data-act="bulk-import-wizard" style="margin-right:8px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>一括登録</button><button class="btn btn-primary btn-sm" data-act="bulk-open"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>候補者へ一括送信</button>`);
-  const rows=agencyReferrals(S.agencyId);
+  const all=agencyReferrals(S.agencyId);
+  const cnt=k=>k==='all'?all.length:
+             k==='active'?all.filter(r=>r.status!=='rejected'&&r.status!=='declined'&&r.status!=='joined').length:
+             k==='out'?all.filter(r=>r.status==='rejected'||r.status==='declined').length:
+             all.filter(r=>r.status===k).length;
+  const pick=k=>k==='all'?all:
+               k==='active'?all.filter(r=>r.status!=='rejected'&&r.status!=='declined'&&r.status!=='joined'):
+               k==='out'?all.filter(r=>r.status==='rejected'||r.status==='declined'):
+               all.filter(r=>r.status===k);
+  const rows=pick(myRefTab);
+  const tab=(k,label)=>`<button type="button" data-act="myref-tab" data-tab="${k}" style="background:none;border:none;cursor:pointer;padding:8px 2px;margin-right:18px;font-size:13.5px;white-space:nowrap;color:${myRefTab===k?'var(--ink)':'var(--soft)'};font-weight:${myRefTab===k?'700':'500'};border-bottom:2px solid ${myRefTab===k?'var(--accent)':'transparent'}">${label} <span style="font-weight:400">${cnt(k)}</span></button>`;
+  const tabs=`<div style="display:flex;align-items:center;overflow-x:auto;border-bottom:1px solid var(--line);margin-bottom:12px">
+    ${tab('all','すべて')}${tab('active','選考中')}${tab('screening','書類選考')}${tab('interview','選考会')}${tab('offer','内定')}${tab('joined','入社')}${tab('out','見送り・辞退')}
+  </div>`;
   const c=document.getElementById('content');
-  c.innerHTML=`${urgentBannerHtml()}<div class="meta-row"><span class="meta-count">${rows.filter(r=>r.status!=='rejected').length} 名 送客中</span></div>
+  c.innerHTML=`${urgentBannerHtml()}${tabs}<div class="meta-row"><span class="meta-count">${rows.length} 名</span></div>
     <div class="panel tbl-wrap">${referralTable(rows,{showAgency:false})}</div>`;
 }
 function viewMyEarn(){
@@ -4954,6 +4968,8 @@ document.addEventListener('click', e=>{
       break;
     }
     case 'tracker-reload': location.reload(); break;
+    case 'tracker-tab': _tkTab=t.dataset.tab; renderTrackerList(); break;
+    case 'myref-tab': myRefTab=t.dataset.tab; render(); break;
     case 'save-subacc-email': { const acc=(DB.subaccounts||[]).find(x=>x.id===t.dataset.id); if(acc){ acc.email=(document.getElementById('subAccEmail').value||'').trim(); save(); toast('保存しました'); closeModal(); } break; }
     case 'copy-form-url': { const el=document.getElementById('formUrlInput'); if(el){ el.select(); try{ navigator.clipboard.writeText(el.value); toast('URLをコピーしました'); }catch(e){ document.execCommand('copy'); toast('URLをコピーしました'); } } break; }
     case 'intake-form-info': showIntakeFormInfo(); break;
@@ -8546,18 +8562,35 @@ async function openTracker(token){
   renderTrackerList(res.rows||[]);
 }
 
+let _tkRows=[]; let _tkTab='all';
 function renderTrackerList(rows){
+  if(rows) _tkRows=rows;
+  const all=_tkRows||[];
   const LBL={entry:'送客済',screening:'書類選考',interview:'選考会',offer:'内定',joined:'入社',rejected:'見送り',declined:'辞退'};
-  const active=rows.filter(r=>r.status!=='rejected'&&r.status!=='declined').length;
-  const joined=rows.filter(r=>r.status==='joined').length;
-  const body = rows.length ? rows.map(r=>`<tr>
+  const cnt=k=>k==='all'?all.length:
+             k==='active'?all.filter(r=>r.status!=='rejected'&&r.status!=='declined'&&r.status!=='joined').length:
+             k==='out'?all.filter(r=>r.status==='rejected'||r.status==='declined').length:
+             all.filter(r=>r.status===k).length;
+  const pick=k=>k==='all'?all:
+               k==='active'?all.filter(r=>r.status!=='rejected'&&r.status!=='declined'&&r.status!=='joined'):
+               k==='out'?all.filter(r=>r.status==='rejected'||r.status==='declined'):
+               all.filter(r=>r.status===k);
+  const rowsF=pick(_tkTab);
+
+  const active=cnt('active'), joined=cnt('joined');
+  const tab=(k,label)=>`<button type="button" data-act="tracker-tab" data-tab="${k}" style="background:none;border:none;cursor:pointer;padding:8px 2px;margin-right:18px;font-size:13.5px;white-space:nowrap;color:${_tkTab===k?'var(--ink)':'var(--soft)'};font-weight:${_tkTab===k?'700':'500'};border-bottom:2px solid ${_tkTab===k?'var(--accent)':'transparent'}">${label} <span style="font-weight:400">${cnt(k)}</span></button>`;
+  const tabs=`<div style="display:flex;align-items:center;overflow-x:auto;border-bottom:1px solid var(--line);margin-bottom:14px">
+    ${tab('all','すべて')}${tab('active','選考中')}${tab('offer','内定')}${tab('joined','入社')}${tab('out','見送り・辞退')}
+  </div>`;
+
+  const body = rowsF.length ? rowsF.map(r=>`<tr>
       <td class="cell-strong">${esc(r.name)}</td>
       <td><span class="tag" style="font-size:10px">${esc(r.project_name||'—')}</span></td>
       <td style="text-align:center"><span class="badge bd-${esc(r.status)}">${esc(LBL[r.status]||r.status)}</span></td>
       <td class="cell-sub">${esc(r.session||'—')}</td>
       <td class="cell-sub">${esc(r.joined_on||'—')}</td>
     </tr>`).join('')
-    : '<tr><td colspan="5" style="text-align:center;padding:28px"><span class="cell-sub">まだご紹介いただいた方はいません。</span></td></tr>';
+    : `<tr><td colspan="5" style="text-align:center;padding:28px"><span class="cell-sub">${all.length?'この状況の方はいません。':'まだご紹介いただいた方はいません。'}</span></td></tr>`;
 
   const host=document.getElementById('app')||document.body;
   host.innerHTML=`
@@ -8571,10 +8604,11 @@ function renderTrackerList(rows){
         <button class="btn btn-ghost btn-sm" data-act="tracker-reload">最新に更新</button>
       </div>
       <div class="kpi-grid" style="margin-bottom:16px">
-        ${kpi('ご紹介', rows.length+'<span class="unit">名</span>','var(--accent)')}
+        ${kpi('ご紹介', all.length+'<span class="unit">名</span>','var(--accent)')}
         ${kpi('選考中', active+'<span class="unit">名</span>','var(--b)')}
         ${kpi('入社', joined+'<span class="unit">名</span>','var(--g)')}
       </div>
+      ${tabs}
       <div class="panel tbl-wrap"><table class="tbl"><thead><tr>
         <th>お名前</th><th>案件</th><th style="text-align:center">選考状況</th><th>面談</th><th>入社日</th>
       </tr></thead><tbody>${body}</tbody></table></div>
