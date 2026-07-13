@@ -2052,7 +2052,7 @@ function renderLogin(){
     title.textContent='パートナーログイン';
     sub.textContent='企業コードとパスワードでログイン';
     body.innerHTML = `
-      <div class="ix">${LI_USER}<input id="liId" type="${DEMO_MODE?'email':'text'}" value="${DEMO_MODE?'otsuka@alive.co.jp':''}" autocomplete="off" placeholder="${DEMO_MODE?'メールアドレス':'企業コード（例：PT-001）'}"></div>
+      <div class="ix">${LI_USER}<input id="liId" type="${DEMO_MODE?'email':'text'}" value="${DEMO_MODE?'otsuka@alive.co.jp':''}" autocomplete="off" placeholder="${DEMO_MODE?'メールアドレス':'企業コード（例：PT123）'}"></div>
       <div class="ix">${LI_LOCK}<input id="liPw" type="password" value="${DEMO_MODE?'alive2026':''}" autocomplete="off" placeholder="パスワード"><button type="button" class="ix-eye" data-act="pw-eye">${LI_EYE}</button></div>
       <div class="lrow"><label class="lcheck"><input type="checkbox" id="liRemember"><span>ログイン状態を保持する</span></label><button type="button" class="lforgot" data-act="forgot-pw">パスワードをお忘れの方</button></div>
       <div class="login-err" id="liErr"></div>
