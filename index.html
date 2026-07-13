@@ -4516,11 +4516,11 @@ function modalNewReferral(pjId, agId){
       ${projSel}
       ${agSel}
       <div class="field full"><label>氏名 *</label><input id="mName" placeholder="山田 太郎"></div>
-      <div class="field"><label>フリガナ</label><input id="mKana" placeholder="ヤマダ タロウ"></div>
-      <div class="field"><label>希望エリア</label><select id="mArea">${areaOptions('')}</select></div>
+      <div class="field"><label>フリガナ <span style="color:var(--r)">*</span></label><input id="mKana" placeholder="ヤマダ タロウ"></div>
+      <div class="field"><label>希望エリア <span style="color:var(--r)">*</span></label><select id="mArea">${areaOptions('')}</select></div>
       <div class="field"><label>電話番号 <span style="color:var(--r)">*</span></label><input id="mPhone" placeholder="090-0000-0000" inputmode="tel"><div class="cell-sub" style="font-size:11px;margin-top:3px">必須。ハイフンは自動で付きます</div></div>
-      <div class="field"><label>メール</label><input id="mEmail" placeholder="you@example.com"></div>
-      <div class="field full"><label>住所</label><input id="mAddress" placeholder="東京都〇〇区..."></div>
+      <div class="field"><label>メール <span style="color:var(--r)">*</span></label><input id="mEmail" placeholder="you@example.com"></div>
+      <div class="field full"><label>住所 <span style="color:var(--r)">*</span></label><input id="mAddress" placeholder="東京都〇〇区..."></div>
       <div class="field full"><label>集客元<span style="font-weight:400;color:var(--muted);font-size:11px">（任意・空欄でOK）</span></label><input id="mSrc" placeholder="例：自社サイト / ◯◯エージェント / 紹介 など"></div>
     </div>
     <div class="modal-actions">
@@ -5307,6 +5307,16 @@ async function saveReferral(pjId){
   const _phoneErr=phoneError(val('mPhone'), true);
   if(_phoneErr){ toast(_phoneErr); const _el=document.getElementById('mPhone'); if(_el) _el.focus(); return; }
   const _phone=formatPhoneJP(val('mPhone'));
+  // 集客元以外は必須
+  const _kana=val('mKana');
+  if(!_kana){ toast('フリガナを入力してください'); const _el=document.getElementById('mKana'); if(_el) _el.focus(); return; }
+  const _area=val('mArea');
+  if(!_area){ toast('希望エリアを選択してください'); const _el=document.getElementById('mArea'); if(_el) _el.focus(); return; }
+  const _email=val('mEmail');
+  if(!_email){ toast('メールアドレスを入力してください'); const _el=document.getElementById('mEmail'); if(_el) _el.focus(); return; }
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(_email)){ toast('メールアドレスの形式をご確認ください'); const _el=document.getElementById('mEmail'); if(_el) _el.focus(); return; }
+  const _address=val('mAddress');
+  if(!_address){ toast('住所を入力してください'); const _el=document.getElementById('mAddress'); if(_el) _el.focus(); return; }
   // 電話番号による重複チェック（全社横断・早い者勝ち）
   const _dup=findPhoneDuplicate(_phone);
   if(_dup){
@@ -7669,11 +7679,11 @@ function renderIntakeForm(agId, partnerName, projList){
             </select>
           </div>`:''}
           ${ikField('お名前', 'ikfName', 'text', '山田 太郎', true)}
-          ${ikField('フリガナ', 'ikfKana', 'text', 'ヤマダ タロウ', false)}
+          ${ikField('フリガナ', 'ikfKana', 'text', 'ヤマダ タロウ', true)}
           ${ikField('電話番号', 'ikfPhone', 'tel', '090-1234-5678', true)}
-          ${ikField('メールアドレス', 'ikfEmail', 'email', 'taro@example.com', false)}
+          ${ikField('メールアドレス', 'ikfEmail', 'email', 'taro@example.com', true)}
           <div class="ikf-field">
-            <label class="ikf-label">希望エリア</label>
+            <label class="ikf-label">希望エリア <span style="color:#BE123C">*</span></label>
             <select id="ikfArea" class="ikf-input">${areaOptions('')}</select>
           </div>
           <div>
@@ -7741,14 +7751,25 @@ async function submitIntakeForm(agId, partnerName){
   const val=id=>{ const el=document.getElementById(id); return el?el.value.trim():''; };
   const company=val('ikfCompany');
   if(!company){ if(err) err.textContent='御社名は必須です。'; return; }   // 会社名を必須化
+  // 紹介する案件（選択されているか）
+  const _pjEl=document.getElementById('ikfProject');
+  if(_pjEl && !_pjEl.value){ if(err) err.textContent='紹介する案件を選択してください。'; _pjEl.focus(); return; }
   const name=val('ikfName');
   if(!name){ if(err) err.textContent='お名前は必須です。'; return; }
+  // フリガナ（必須）
+  const kana=val('ikfKana');
+  if(!kana){ if(err) err.textContent='フリガナは必須です。'; const _el=document.getElementById('ikfKana'); if(_el) _el.focus(); return; }
   // 電話番号は必須（本人特定・二重応募防止のため）
   const _pe=phoneError(val('ikfPhone'), true);
   if(_pe){ if(err) err.textContent=_pe+'。'; const _el=document.getElementById('ikfPhone'); if(_el) _el.focus(); return; }
   const phoneFmt=formatPhoneJP(val('ikfPhone'));
+  // メールアドレス（必須）
   const email=val('ikfEmail');
-  if(email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ if(err) err.textContent='メールアドレスの形式をご確認ください。'; return; }
+  if(!email){ if(err) err.textContent='メールアドレスは必須です。'; const _el=document.getElementById('ikfEmail'); if(_el) _el.focus(); return; }
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ if(err) err.textContent='メールアドレスの形式をご確認ください。'; const _el=document.getElementById('ikfEmail'); if(_el) _el.focus(); return; }
+  // 希望エリア（必須）
+  const areaSel=val('ikfArea');
+  if(!areaSel){ if(err) err.textContent='希望エリアを選択してください。'; const _el=document.getElementById('ikfArea'); if(_el) _el.focus(); return; }
   const btn=document.getElementById('ikfSubmit');
   if(btn){ btn.disabled=true; btn.textContent='送信中…'; }
   const ikId='IK-'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
