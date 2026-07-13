@@ -1540,6 +1540,48 @@ function docsSection(r){
     ${otherDocs.map(d=>docItemRow(r,d)).join('')}`;
 }
 
+/* ── 希望エリア：都道府県（選択制）──────────────────────────────
+   報酬計算(baseSalaryFor)は「東京」「大阪」等を includes で判定するため、
+   「東京都」「大阪府」と保存しても正しく一致する（表記ゆれが消え精度が上がる）。 */
+const PREFECTURES = [
+  '北海道','青森県','岩手県','宮城県','秋田県','山形県','福島県',
+  '茨城県','栃木県','群馬県','埼玉県','千葉県','東京都','神奈川県',
+  '新潟県','富山県','石川県','福井県','山梨県','長野県',
+  '岐阜県','静岡県','愛知県','三重県',
+  '滋賀県','京都府','大阪府','兵庫県','奈良県','和歌山県',
+  '鳥取県','島根県','岡山県','広島県','山口県',
+  '徳島県','香川県','愛媛県','高知県',
+  '福岡県','佐賀県','長崎県','熊本県','大分県','宮崎県','鹿児島県','沖縄県',
+  '海外'
+];
+/* 選択肢HTML。既存データが一覧に無い表記でも失われないよう、その値を先頭に残す */
+function areaOptions(sel){
+  const v=(sel||'').trim();
+  const known=PREFECTURES.includes(v);
+  const extra=(v && !known) ? `<option value="${esc(v)}" selected>${esc(v)}（現在の値）</option>` : '';
+  return `<option value="">選択してください</option>${extra}` +
+    PREFECTURES.map(p=>`<option value="${esc(p)}"${p===v?' selected':''}>${esc(p)}</option>`).join('');
+}
+/* 自由入力の地名を都道府県名に寄せる（履歴書の自動読取・CSV取込用）
+   例) 「東京」→「東京都」 / 「東京都渋谷区…」→「東京都」 / 「首都圏」→ '' (該当なし) */
+function normalizeArea(s){
+  const v=String(s||'').trim();
+  if(!v) return '';
+  if(PREFECTURES.includes(v)) return v;            // 既に正しい表記
+  if(/海外|外国|オーバーシー/i.test(v)) return '海外';
+  // 「東京都渋谷区」のように前方一致するもの
+  const hit=PREFECTURES.find(p=>p!=='海外' && v.startsWith(p));
+  if(hit) return hit;
+  // 「東京」「大阪」など“都府県”を省いた表記
+  const short=PREFECTURES.find(p=>{
+    if(p==='海外'||p==='北海道') return false;
+    const base=p.replace(/[都府県]$/,'');
+    return v===base || v.startsWith(base);
+  });
+  if(short) return short;
+  if(v.includes('北海道')) return '北海道';
+  return '';   // 「首都圏」など特定できないものは空（未選択）にする
+}
 const STATUS = {
   entry:      {label:'送客済',   cls:'entry'},
   screening:  {label:'書類選考', cls:'screening'},
@@ -2693,7 +2735,7 @@ function refFilterPanel(){
       <div class="fp-field"><label>入社月</label><div class="fp-range"><input type="month" id="fJoinFrom" value="${esc(rFilter.joinFrom)}"><span>〜</span><input type="month" id="fJoinTo" value="${esc(rFilter.joinTo)}"></div>
         <select class="fsel" id="fJoinMode">${opt('all',rFilter.joinMode,'入社状況：すべて')}${opt('joined',rFilter.joinMode,'入社済みのみ')}${opt('notjoined',rFilter.joinMode,'未入社のみ')}</select></div>
       <div class="fp-field"><label>送客日</label><div class="fp-range"><input type="date" id="fCrFrom" value="${esc(rFilter.crFrom)}"><span>〜</span><input type="date" id="fCrTo" value="${esc(rFilter.crTo)}"></div></div>
-      <div class="fp-field"><label>希望エリア</label><input id="fArea" placeholder="例：東京 / 大阪" value="${esc(rFilter.area)}"></div>
+      <div class="fp-field"><label>希望エリア</label><select id="fArea"><option value="">すべて</option>${PREFECTURES.map(p=>`<option value="${esc(p)}"${p===rFilter.area?' selected':''}>${esc(p)}</option>`).join('')}</select></div>
       <div class="fp-field"><label>資料</label><select class="fsel" id="fDoc">${opt('all',rFilter.docMode,'すべて')}${opt('missing',rFilter.docMode,'未提出（履歴書か職務経歴書なし）')}${opt('norireki',rFilter.docMode,'履歴書なし')}${opt('noshoku',rFilter.docMode,'職務経歴書なし')}${opt('both',rFilter.docMode,'両方あり')}</select></div>
     </div>
     <div class="fp-foot"><span class="cell-sub" id="fpCount"></span><button class="btn btn-ghost btn-sm" data-act="rfilter-clear">詳細条件をクリア</button></div>
@@ -4135,7 +4177,7 @@ function openRefDrawer(id){
           <div class="field"><label>ステータス</label><select id="dr_status">${STATUS_ORDER.map(k=>`<option value="${k}" ${k===r.status?'selected':''}>${STATUS[k].label}</option>`).join('')}</select></div>
           <div class="field"><label>入社月<span style="font-weight:400;color:var(--muted);font-size:11px"> （空にすると未定）</span></label><input type="month" id="dr_joined" value="${r.joined?esc(r.joined.slice(0,7)):''}"></div>
           <div class="field"><label>選考会日${S.role==='kanoa'?`<button class="btn btn-ghost btn-sm" style="padding:1px 8px;font-size:10.5px;margin-left:8px;vertical-align:1px" data-act="share-session" data-id="${r.id}">パートナーに連絡</button>`:''}</label><input id="dr_session" value="${r.session==='—'?'':esc(r.session)}" placeholder="7/18 14:00 など"></div>
-          <div class="field"><label>希望エリア</label><input id="dr_area" value="${esc(r.area||'')}"></div>
+          <div class="field"><label>希望エリア</label><select id="dr_area">${areaOptions(r.area||'')}</select></div>
         </div>
         <div class="dt-block-title">個人情報</div>
         <div class="dr-form">
@@ -4428,7 +4470,7 @@ async function autofillFromDoc(file){
       const mapping=autoMapColumns(headers);
       const objs=rowsToObjects([rows[0]], mapping);
       const f=objs[0]||{};
-      set('mName',f.name); set('mKana',f.kana); set('mPhone',f.phone); set('mEmail',f.email); set('mAddress',f.address); set('mArea',f.area); set('mSrc',f.src);
+      set('mName',f.name); set('mKana',f.kana); set('mPhone',f.phone); set('mEmail',f.email); set('mAddress',f.address); set('mArea',normalizeArea(f.area)); set('mSrc',f.src);
       const got=Object.values(f).filter(Boolean).length;
       toast(got?`${got}項目を読み取りました。内容をご確認ください${rows.length>1?`（複数行検出：一括登録が便利です）`:''}`:'読み取れる項目が見つかりませんでした。手入力をお願いします');
       return;
@@ -4438,7 +4480,7 @@ async function autofillFromDoc(file){
     else if(/^(txt|md|json)$/.test(ext)||/^text\//.test(file.type)){ text=await file.text(); }
     else { toast('対応形式：PDF・CSV・Excel・テキスト'); return; }
     const f=parseResumeFields(text);
-    set('mName',f.name); set('mKana',f.kana); set('mPhone',f.phone); set('mEmail',f.email); set('mAddress',f.address); set('mArea',f.area);
+    set('mName',f.name); set('mKana',f.kana); set('mPhone',f.phone); set('mEmail',f.email); set('mAddress',f.address); set('mArea',normalizeArea(f.area));
     const got=['name','kana','phone','email','address','area'].filter(k=>f[k]).length;
     toast(got?`資料から${got}項目を読み取りました。内容をご確認ください`:'読み取れる項目が見つかりませんでした。手入力をお願いします');
   }catch(e){ toast('読み取りに失敗しました。手入力をお願いします'); }
@@ -4468,7 +4510,7 @@ function modalNewReferral(pjId, agId){
       ${agSel}
       <div class="field full"><label>氏名 *</label><input id="mName" placeholder="山田 太郎"></div>
       <div class="field"><label>フリガナ</label><input id="mKana" placeholder="ヤマダ タロウ"></div>
-      <div class="field"><label>希望エリア</label><input id="mArea" placeholder="首都圏"></div>
+      <div class="field"><label>希望エリア</label><select id="mArea">${areaOptions('')}</select></div>
       <div class="field"><label>電話番号 <span style="color:var(--r)">*</span></label><input id="mPhone" placeholder="090-0000-0000" inputmode="tel"><div class="cell-sub" style="font-size:11px;margin-top:3px">必須。ハイフンは自動で付きます</div></div>
       <div class="field"><label>メール</label><input id="mEmail" placeholder="you@example.com"></div>
       <div class="field full"><label>住所</label><input id="mAddress" placeholder="東京都〇〇区..."></div>
@@ -6564,7 +6606,7 @@ function renderBulkRegisterModal(projList){
       <td style="padding:4px"><input data-bulk="kana" data-i="${idx}" value="${esc(r.kana)}" placeholder="フリガナ" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:12.5px"></td>
       <td style="padding:4px"><input data-bulk="phone" data-i="${idx}" value="${esc(r.phone)}" placeholder="電話" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:12.5px"></td>
       <td style="padding:4px"><input data-bulk="email" data-i="${idx}" value="${esc(r.email)}" placeholder="メール" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:12.5px"></td>
-      <td style="padding:4px"><input data-bulk="area" data-i="${idx}" value="${esc(r.area)}" placeholder="希望エリア" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:12.5px"></td>
+      <td style="padding:4px"><select data-bulk="area" data-i="${idx}" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:12.5px">${areaOptions(r.area)}</select></td>
       <td style="padding:4px"><input data-bulk="src" data-i="${idx}" value="${esc(r.src)}" placeholder="集客元" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:12.5px"></td>
       <td style="padding:4px"><select data-bulk="pj" data-i="${idx}" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:12px">${projOpts.replace('value="'+r.pj+'"','value="'+r.pj+'" selected')}</select></td>
       <td style="padding:4px;text-align:center"><button class="btn btn-ghost btn-sm" data-act="bulk-reg-delrow" data-i="${idx}" style="padding:4px 8px">×</button></td>
@@ -7180,7 +7222,7 @@ async function bulkSubmitFinal(){
       const m=w.projList.find(p=>(p.name||'').includes(o.project) || o.project.includes((p.name||'').replace(' パートナー送客','')));
       if(m) pj=m.id;
     }
-    const r=mk(pj, ag, o.name.trim(), o.kana||'', _pf, o.email||'', o.address||'', o.area||'', 'entry','—', todayISO());
+    const r=mk(pj, ag, o.name.trim(), o.kana||'', _pf, o.email||'', o.address||'', normalizeArea(o.area), 'entry','—', todayISO());
     r.src=o.src||'';
     if(!isK) r.seenK=false;
     DB.referrals.unshift(r);
@@ -7489,7 +7531,7 @@ function addIntakeRows(objs, sourceType){
     DB.intake.unshift({
       id:uid('IK'), ag, pj:o.pj||'', name:String(o.name).trim(),
       kana:o.kana||'', phone:o.phone||'', email:o.email||'', address:o.address||'',
-      area:o.area||'', src:o.src||'', company:o.company||'', note:o.note||'', docs:[],
+      area:normalizeArea(o.area), src:o.src||'', company:o.company||'', note:o.note||'', docs:[],
       source_type:sourceType||'form', status:'pending', created:nowTS()
     });
     n++;
@@ -7617,7 +7659,10 @@ function renderIntakeForm(agId, partnerName, projList){
           ${ikField('フリガナ', 'ikfKana', 'text', 'ヤマダ タロウ', false)}
           ${ikField('電話番号', 'ikfPhone', 'tel', '090-1234-5678', true)}
           ${ikField('メールアドレス', 'ikfEmail', 'email', 'taro@example.com', false)}
-          ${ikField('希望エリア', 'ikfArea', 'text', '東京', false)}
+          <div class="ikf-field">
+            <label class="ikf-label">希望エリア</label>
+            <select id="ikfArea" class="ikf-input">${areaOptions('')}</select>
+          </div>
           <div>
             <label style="display:block;font-size:12px;font-weight:600;color:var(--ink,#1f3f63);margin-bottom:5px">履歴書・職務経歴書の添付</label>
             <div id="ikfDropZone" style="border:1.5px dashed var(--line,#e2e8f0);border-radius:10px;padding:16px;text-align:center;cursor:pointer;background:var(--gray-bg,#f8fafc)">
@@ -7718,7 +7763,7 @@ async function submitIntakeForm(agId, partnerName){
     const rec={
       id:ikId, agency_id:agId, project_id:selPj, name,
       kana:val('ikfKana')||null, phone:phoneFmt||null, email:email||null,
-      address:null, area:val('ikfArea')||null, source:company, company:company,
+      address:null, area:normalizeArea(val('ikfArea'))||null, source:company, company:company,
       note:val('ikfNote')||null, docs:JSON.stringify(docs), source_type:'form'
     };
     if(!DEMO_MODE){
