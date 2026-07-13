@@ -988,6 +988,21 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
       logins:(llogs.data||[]).map(r=>({id:r.id,ag:r.agency_id,at:TZ_toLocal(r.created_at),ok:r.success,via:r.method||'パスワード'})) };
     const byRef={}; d.referrals.forEach(r=>byRef[r.id]=r);
     (docs.data||[]).forEach(x=>{ const r=byRef[x.referral_id]; if(r) r.docs.push({id:x.id,name:x.name,size:x.size,type:x.mime,kind:x.kind,uploaded:slice16(x.created_at),path:x.storage_path}); });
+    // サーバーの現在値を「送信済み」として記録する。
+    // これをしないと、読み込んだ直後の全行が「変更あり」と判定され、
+    // 他端末の更新を古い内容で上書きしてしまう（差分同期の要）。
+    try{
+      markSynced('agencies',   d.agencies.map(toAgency));
+      markSynced('projects',   d.projects.map(toProject));
+      markSynced('assignments',d.assignments.map(toAssign));
+      markSynced('referrals',  d.referrals.map(toRef));
+      markSynced('messages',   d.messages.map(toMsg));
+      markSynced('members',    d.members.map(toMember));
+      markSynced('tasks',      d.tasks.map(toTask));
+      markSynced('invoices',   (d.invoices||[]).map(toInvoice));
+      markSynced('reflog',     (d.reflog||[]).map(toReflog));
+      markSynced('intake',     (d.intake||[]).map(toIntake));
+    }catch(e){ console.warn('[sync] markSynced', e && e.message); }
     return d;
   }
   /* 変更の書き戻し（MVP：デバウンスで全テーブル upsert。大規模化時は差分同期へ） */
@@ -998,23 +1013,51 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
   // 待機は syncNow 冒頭で syncT=null により必ず解除されるため「止まったまま」にはならない
   // （送信間隔350msより長く操作しなければ、すぐ最新化される）。
   function isBusy(){ return _syncing || !!syncT; }
+  /* ── 差分同期 ──────────────────────────────────────────────
+     以前は「全行をまるごと送り返す」方式だった。その場合、複数デバイス/複数人が
+     同時に使うと、古いデータを持った端末が他端末の変更を静かに上書きしてしまう。
+     そこで「前回サーバーへ送った内容」と比較し、実際に変わった行だけを送る。
+     こうすれば、自分が触っていない行を上書きしなくなる。                        */
+  const _sent = Object.create(null);   // table -> { id: 内容の指紋 }
+  function _fingerprint(row){ try{ return JSON.stringify(row); }catch(e){ return String(Math.random()); } }
+  /* サーバーから読み直した内容を「送信済み」として記録する（無駄な再送を防ぐ） */
+  function markSynced(table, rows){
+    const m=_sent[table]||(_sent[table]=Object.create(null));
+    for(const r of rows||[]){ if(r && r.id!=null) m[r.id]=_fingerprint(r); }
+  }
+  function _changedRows(table, rows){
+    const m=_sent[table]||(_sent[table]=Object.create(null));
+    const out=[];
+    for(const r of rows||[]){
+      if(!r || r.id==null) continue;
+      const fp=_fingerprint(r);
+      if(m[r.id]!==fp) out.push(r);
+    }
+    return out;
+  }
   async function syncNow(){
     if(!sb) return;
     clearTimeout(syncT); syncT=null;   // ★重要: タイマーIDを解放。これが残ると isBusy() が永久true になり更新が止まる
     _syncing=true;
     // 各テーブルを独立してupsert。1つ失敗しても他テーブルの同期は継続する。
     const one=async (table, rows)=>{
-      try{ const { error }=await sb.from(table).upsert(rows); if(error) console.warn('[sync]',table,error.message); }
+      const changed=_changedRows(table, rows);
+      if(!changed.length) return;                 // 変更なし → 何も送らない（他端末の更新を壊さない）
+      try{
+        const { error }=await sb.from(table).upsert(changed);
+        if(error){ console.warn('[sync]',table,error.message); return; }
+        markSynced(table, changed);               // 成功した行だけ「送信済み」に記録
+      }
       catch(e){ console.warn('[sync]',table,e&&e.message); }
     };
-    await one('agencies', DB.agencies.map(toAgency));
-    await one('projects', DB.projects.map(toProject));
-    await one('assignments', DB.assignments.map(toAssign));
-    await one('referrals', DB.referrals.map(toRef));
-    await one('messages', DB.messages.map(toMsg));
-    await one('members', DB.members.map(toMember));
-    await one('tasks', DB.tasks.map(toTask));
     try{
+      await one('agencies', DB.agencies.map(toAgency));
+      await one('projects', DB.projects.map(toProject));
+      await one('assignments', DB.assignments.map(toAssign));
+      await one('referrals', DB.referrals.map(toRef));
+      await one('messages', DB.messages.map(toMsg));
+      await one('members', DB.members.map(toMember));
+      await one('tasks', DB.tasks.map(toTask));
       if(DB.invoices&&DB.invoices.length) await one('invoices', DB.invoices.map(toInvoice));
       if(DB.reflog&&DB.reflog.length) await one('reflog', DB.reflog.map(toReflog));
       if(DB.intake&&DB.intake.length) await one('intake', DB.intake.map(toIntake));
@@ -1026,8 +1069,9 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
   async function insertReferral(r){
     if(!sb) return null;   // デモ等
     try{
-      const { error } = await sb.from('referrals').insert(toRef(r));
-      if(!error) return null;
+      const row=toRef(r);
+      const { error } = await sb.from('referrals').insert(row);
+      if(!error){ markSynced('referrals',[row]); return null; }
       const msg=(error.message||'')+' '+(error.details||'');
       // 23505 = unique_violation（電話番号の一意制約）
       if(error.code==='23505' || /duplicate key|uniq_referrals_phone/i.test(msg)) return {duplicate:true};
