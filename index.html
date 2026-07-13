@@ -1467,18 +1467,14 @@ async function autofillReferral(r, file){
 async function uploadDocs(refId, fileList, forceKind){
   const r=DB.referrals.find(x=>x.id===refId); if(!r) return;
   r.docs=r.docs||[];
-  let resumeFile=null;
   let _upOk=0, _upSkip=0;
   for(const f of Array.from(fileList)){
     if(f.size>25*1048576){ toast(`${f.name} は25MBを超えています（上限25MB）`); _upSkip++; continue; }
     const kind = forceKind || inferKind(f.name);
-    // 履歴書（またはPDF/テキスト）で、候補者情報が未入力なら自動入力の対象に
-    if(!resumeFile && (kind==='履歴書' || fileExt(f.name)==='pdf' || /^text\//.test(f.type)) && (!r.name||!r.email||!r.phone||!r.kana)) resumeFile=f;
     if(DEMO_MODE){ const id=uid('D'); await idbPut(id,f); r.docs.push({id, name:f.name, size:f.size, type:f.type, kind, uploaded:nowTS()}); _upOk++; }
     else { try{ const meta=await SUPA.uploadDoc(refId,f,kind); r.docs.push(meta); _upOk++; }catch(e){ toast(`${f.name} のアップロードに失敗しました`); _upSkip++; } }
   }
-  let filled=0;
-  if(resumeFile){ filled=await autofillReferral(r, resumeFile); }
+  const filled=0;   // 自動読み取りは廃止（誤入力防止のため人が入力する）
   save();
   // 実際にアップロードできた件数で出し分け（サイズ超過などで0件なら成功メッセージを出さない）
   if(_upOk>0){
@@ -4506,11 +4502,21 @@ function modalNewReferral(pjId, agId){
   showModal(`
     <div class="modal-title">候補者を送客</div>
     <div class="modal-sub">${esc(p?p.name:'')}</div>
-    <div id="singleDrop" style="border:2px dashed var(--line);border-radius:12px;padding:16px;text-align:center;margin-bottom:14px;cursor:pointer;background:var(--gray-bg);transition:all .15s">
-      <input type="file" id="singleDropInput" accept=".pdf,.txt,.csv,.tsv,.md,.json,.xlsx,.xls" data-act="autofill-doc" style="display:none">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="1.8" style="margin-bottom:4px"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-      <div style="font-size:12.5px;font-weight:600">履歴書・データをドラッグ＆ドロップ</div>
-      <div style="font-size:11px;color:var(--soft);margin-top:2px">PDF・CSV・Excel・テキストから自動入力（クリックでも選択可）</div>
+    <div style="border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:14px;background:var(--gray-bg)">
+      <div style="font-size:12.5px;font-weight:700;margin-bottom:8px">書類の添付<span style="font-weight:400;color:var(--muted);font-size:11px">（任意）</span></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <div style="flex:1;min-width:190px">
+          <label style="display:block;font-size:11.5px;color:var(--soft);margin-bottom:4px">履歴書</label>
+          <input type="file" id="mDocResume" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xlsx,.xls"
+            style="width:100%;font-size:11.5px;padding:7px;border:1px solid var(--line);border-radius:8px;background:#fff;box-sizing:border-box">
+        </div>
+        <div style="flex:1;min-width:190px">
+          <label style="display:block;font-size:11.5px;color:var(--soft);margin-bottom:4px">職務経歴書</label>
+          <input type="file" id="mDocCareer" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xlsx,.xls"
+            style="width:100%;font-size:11.5px;padding:7px;border:1px solid var(--line);border-radius:8px;background:#fff;box-sizing:border-box">
+        </div>
+      </div>
+      <div class="cell-sub" style="font-size:10.5px;margin-top:6px">各25MBまで。後から追加・変更もできます。</div>
     </div>
     <div class="modal-grid">
       ${projSel}
@@ -4527,15 +4533,6 @@ function modalNewReferral(pjId, agId){
       <button class="btn btn-ghost" data-act="closemodal">キャンセル</button>
       <button class="btn btn-primary" data-act="save-referral" data-id="${pjId}">送客を登録</button>
     </div>`);
-  setTimeout(()=>{
-    const dz=document.getElementById('singleDrop'), fi=document.getElementById('singleDropInput');
-    if(!dz||!fi) return;
-    dz.addEventListener('click', ()=>fi.click());
-    fi.addEventListener('change', e=>{ if(e.target.files[0]) autofillFromDoc(e.target.files[0]); });
-    dz.addEventListener('dragover', e=>{ e.preventDefault(); dz.style.borderColor='var(--accent)'; dz.style.background='var(--accent-soft)'; });
-    dz.addEventListener('dragleave', ()=>{ dz.style.borderColor='var(--line)'; dz.style.background='var(--gray-bg)'; });
-    dz.addEventListener('drop', e=>{ e.preventDefault(); dz.style.borderColor='var(--line)'; dz.style.background='var(--gray-bg)'; if(e.dataTransfer.files[0]) autofillFromDoc(e.dataTransfer.files[0]); });
-  }, 30);
 }
 let agMethod='invite';
 function genPw(){ const a='abcdefghijkmnpqrstuvwxyz23456789'; let s=''; for(let i=0;i<6;i++)s+=a[Math.floor(Math.random()*a.length)]; return 'relay-'+s; }
@@ -5271,7 +5268,6 @@ document.addEventListener('change', e=>{
   if(e.target.id==='fDoc'){ rFilter.docMode=e.target.value; renderRefChips(); renderRefTable(); }
   if(e.target.id==='fSessTbd'){ rFilter.sessTbd=e.target.checked; renderRefTable(); }
   if(e.target.dataset && e.target.dataset.act==='doc-input'){ if(e.target.files&&e.target.files.length) uploadDocs(e.target.dataset.ref, e.target.files, e.target.dataset.kind||''); }
-  if(e.target.dataset && e.target.dataset.act==='autofill-doc'){ if(e.target.files&&e.target.files[0]) autofillFromDoc(e.target.files[0]); }
   if(e.target.dataset && e.target.dataset.act==='doc-kind'){ const r=DB.referrals.find(x=>x.id===e.target.dataset.ref); if(r){ const d=(r.docs||[]).find(x=>x.id===e.target.dataset.id); if(d){ d.kind=e.target.value; save(); if(S.view==='referrals') renderRefTable(); } } }
 });
 /* drag & drop file upload */
@@ -5329,6 +5325,18 @@ async function saveReferral(pjId){
   DB.referrals.unshift(r);
   // DBに確定登録（他社を含む電話番号の重複はここで確実に弾かれる）
   if(!(await commitReferral(r, name))){ return; }
+  // 添付書類（任意）：履歴書・職務経歴書をアップロード（種類を明示して保存）
+  const _fRes=document.getElementById('mDocResume');
+  const _fCar=document.getElementById('mDocCareer');
+  const _resF=(_fRes&&_fRes.files&&_fRes.files[0])||null;
+  const _carF=(_fCar&&_fCar.files&&_fCar.files[0])||null;
+  if(_resF||_carF){
+    toast('書類をアップロード中…');
+    try{
+      if(_resF) await uploadDocs(r.id, [_resF], '履歴書');
+      if(_carF) await uploadDocs(r.id, [_carF], '職務経歴書');
+    }catch(e){ toast('書類のアップロードに失敗しました（送客は登録されています）'); }
+  }
   DB.activity.unshift({ts:nowTS(),actor:S.role==='agency'?S.agencyId:'KANOA',action:'送客登録',detail:`${name} さんを送客`});
   save(); closeModal(); updateNavCounts();
   // 連絡から追加した場合は、その候補者のスレッドを開いて連携を続けられるように
