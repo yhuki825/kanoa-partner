@@ -1055,6 +1055,13 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     }
     return {rows:data||[]};
   }
+  /* 紹介者が0人でも会社名を表示できるよう、会社名だけを取得する */
+  async function trackerInfo(token, pw){
+    await ensureClient();
+    const { data, error } = await sb.rpc('tracker_info', {p_token:token, p_pw:pw});
+    if(error) return null;
+    return data||null;
+  }
   async function trackerList(){
     if(!sb) return [];
     const { data } = await sb.from('tracker_links').select('token,company,active,expires_at,last_seen,created_at');
@@ -1251,7 +1258,7 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     if(!sb) return;
     try{ await sb.from('login_logs').insert({agency_id:agId,success:!!success,method:method||'パスワード'}); }catch(e){ console.warn('login_log insert failed',e); }
   }
-  return { boot, ensureClient, signInPassword, signInOtp, signOut, resetPassword, updatePassword, partnerLogin, loginThen, loadAll, loadMessages, scheduleSync, syncNow, isBusy, delRow, insertReferral, trackerIssue, trackerView, trackerList, trackerRevoke, uploadDoc, docUrl, removeDoc, insertLoginLog, subscribeRealtime, unsubscribeRealtime, setRealtimeAuth, forceReconnectRealtime };
+  return { boot, ensureClient, signInPassword, signInOtp, signOut, resetPassword, updatePassword, partnerLogin, loginThen, loadAll, loadMessages, scheduleSync, syncNow, isBusy, delRow, insertReferral, trackerIssue, trackerView, trackerInfo, trackerList, trackerRevoke, uploadDoc, docUrl, removeDoc, insertLoginLog, subscribeRealtime, unsubscribeRealtime, setRealtimeAuth, forceReconnectRealtime };
 })();
 
 const LS_KEY = 'kanoa_relay_v22';
@@ -8604,12 +8611,17 @@ async function openTracker(token){
       '表示できませんでした（' + res.error + '）';
     return;
   }
-  renderTrackerList(res.rows||[]);
+  const rows=res.rows||[];
+  // 会社名：進捗データから取得。0件のときは専用RPCで取得する
+  let company = (rows[0] && rows[0].company) || '';
+  if(!company){ try{ company = await SUPA.trackerInfo(token, pw) || ''; }catch(e){} }
+  renderTrackerList(rows, company);
 }
 
-let _tkRows=[]; let _tkTab='all';
-function renderTrackerList(rows){
+let _tkRows=[]; let _tkTab='all'; let _tkCompany='';
+function renderTrackerList(rows, company){
   if(rows) _tkRows=rows;
+  if(company!==undefined && company!==null && company!=='') _tkCompany=company;
   const all=_tkRows||[];
   const LBL={entry:'送客済',screening:'書類選考',interview:'選考会',offer:'内定',joined:'入社',rejected:'見送り',declined:'辞退'};
   const cnt=k=>k==='all'?all.length:
@@ -8643,8 +8655,8 @@ function renderTrackerList(rows){
     <div style="max-width:900px;margin:0 auto">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
         <div>
-          <div style="font-weight:800;font-size:18px">ご紹介いただいた方の進捗</div>
-          <div style="font-size:12px;color:var(--soft);margin-top:2px">閲覧専用ページ</div>
+          <div style="font-weight:800;font-size:20px">${esc(_tkCompany||'ご紹介いただいた方の進捗')}</div>
+          <div style="font-size:12px;color:var(--soft);margin-top:3px">ご紹介いただいた方の進捗（閲覧専用）</div>
         </div>
         <button class="btn btn-ghost btn-sm" data-act="tracker-reload">最新に更新</button>
       </div>
