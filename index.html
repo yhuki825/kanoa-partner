@@ -7378,7 +7378,8 @@ async function approveIntake(id, pjId){
   const idx=(DB.intake||[]).findIndex(x=>x.id===id);
   if(idx<0) return;
   const it=DB.intake[idx];
-  const pj = pjId || it.pj;
+  // 画面のプルダウンで選ばれた案件を使う（未選択なら促す。勝手に決めない）
+  const pj = (pjId!==undefined && pjId!==null && pjId!=='') ? pjId : '';
   if(!pj){ toast('登録先の案件を選んでください'); return; }
   // 電話番号は必須（送客には本人特定が必要）。整形して引き継ぐ
   const _pErr=phoneError(it.phone||'', true);
@@ -7461,7 +7462,11 @@ function viewIntake(){
   const projs = S.role==='agency'
     ? DB.projects.filter(p=>(DB.assignments||[]).some(a=>a.pj===p.id && a.ag===S.agencyId && a.published))
     : DB.projects;
-  const projOpts = (projs.length?projs:DB.projects).map(p=>`<option value="${p.id}">${esc((p.name||p.id).replace(' パートナー送客',''))}</option>`).join('');
+  const projPool = (projs.length?projs:DB.projects);
+  // 応募に紐づく案件（フォームで選ばれたもの）を初期選択にする
+  const projOptsFor = sel => projPool.map(p=>
+    `<option value="${p.id}"${p.id===sel?' selected':''}>${esc((p.name||p.id).replace(' パートナー送客',''))}</option>`
+  ).join('');
   const rows=items.map(it=>{
     const p=it.pj?project(it.pj):null;
     const badge = it.source_type==='csv' ? 'CSV' : (it.source_type==='form'?'フォーム':'手動');
@@ -7500,8 +7505,9 @@ function viewIntake(){
             </div>`; }
           return S.role==='agency'?`<div style="display:flex;flex-direction:column;gap:7px;min-width:180px">
             <select id="intake-pj-${it.id}" style="padding:7px 9px;border:1px solid var(--line);border-radius:8px;font-size:12px">
-              <option value="">案件を選択…</option>${projOpts}
+              <option value=""${it.pj?'':' selected'}>案件を選択…</option>${projOptsFor(it.pj||'')}
             </select>
+            ${it.pj?`<div class="cell-sub" style="font-size:10.5px;margin-top:-2px">フォームで選ばれた案件です。変更もできます。</div>`:''}
             <div style="display:flex;gap:7px">
               <button class="btn btn-primary btn-sm" style="flex:1" data-act="intake-approve" data-id="${it.id}">選考会へ送客</button>
               <button class="btn btn-ghost btn-sm" data-act="intake-reject" data-id="${it.id}">見送り</button>
