@@ -1101,8 +1101,78 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     }
     return {rows:data||[]};
   }
-  /* 紹介者が0人でも会社名を表示できるよう、会社名だけを取得する */
-  /* フォーム用トークン(?sub=)から「どの一次パートナーの、どの二次パートナーか」を引く。
+  /* ── 進捗確認ページの編集機能（未ログイン。token+pw をサーバーで毎回検証する）──
+     フォーム登録(intake)と送客済み(referrals)を1つのリストにまとめて返す。 */
+  const _tkErr = m =>
+    /INVALID_LINK/.test(m) ? 'このリンクは無効か、有効期限が切れています' :
+    /INVALID_PASSWORD/.test(m) ? 'パスワードが違います' :
+    /NOT_FOUND/.test(m) ? '対象が見つかりません' :
+    /EMPTY_NAME/.test(m) ? 'お名前を入力してください' :
+    (/duplicate key|uniq_referrals_phone/i.test(m) ? 'この電話番号は既に登録されています' : (m||'処理に失敗しました'));
+
+  async function trackerRows(token, pw){
+    await ensureClient();
+    const { data, error } = await sb.rpc('tracker_rows', {p_token:token, p_pw:pw});
+    if(error){
+      const m=(error.message||'');
+      if(/INVALID_LINK/.test(m)) return {error:'BAD_LINK'};
+      if(/INVALID_PASSWORD/.test(m)) return {error:'BAD_PW'};
+      return {error:m};
+    }
+    return {rows:(data||[]).map(r=>({
+      kind:r.kind, id:r.id, name:r.name||'', kana:r.kana||'', phone:r.phone||'', email:r.email||'',
+      area:r.area||'', note:r.note||'', projectName:r.project_name||'', status:r.status||'',
+      session:r.session||'', joinedOn:r.joined_on||'',
+      docs:Array.isArray(r.docs)?r.docs:[], created:r.created_at||''
+    }))};
+  }
+  async function trackerUpdatePerson(token, pw, kind, id, p){
+    await ensureClient();
+    const s=v=>(v===undefined||v===null)?null:String(v);
+    const { error } = await sb.rpc('tracker_update_person', {
+      p_token:token, p_pw:pw, p_kind:kind, p_id:id,
+      p_name:s(p.name), p_kana:s(p.kana), p_phone:s(p.phone),
+      p_email:s(p.email), p_area:s(p.area), p_note:s(p.note)
+    });
+    if(error) return {error:_tkErr(error.message||'')};
+    return {ok:true};
+  }
+  /* ファイル本体を Storage に上げてから、DBに登録する */
+  async function trackerAddDoc(token, pw, kind, id, file, docKind){
+    await ensureClient();
+    try{
+      const did=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():('D'+Math.random().toString(36).slice(2,9));
+      const ext=(/\.[A-Za-z0-9]+$/.exec(file.name)||[''])[0];
+      // 送客済みは既存の書類と同じ置き場所に揃える（一次パートナー側の閲覧と互換）
+      const path = (kind==='referral') ? `${id}/${did}${ext}` : `intake/${id}/${did}${ext}`;
+      const up=await sb.storage.from('candidate-docs').upload(path, file, {contentType:file.type||'application/octet-stream', upsert:false});
+      if(up.error) return {error:'ファイルのアップロードに失敗しました'};
+      const { error } = await sb.rpc('tracker_add_doc', {
+        p_token:token, p_pw:pw, p_kind:kind, p_id:id,
+        p_doc_id:did, p_doc_name:file.name, p_doc_kind:docKind,
+        p_doc_size:file.size||0, p_doc_mime:file.type||'', p_doc_path:path
+      });
+      if(error) return {error:_tkErr(error.message||'')};
+      return {ok:true};
+    }catch(e){ return {error:(e&&e.message)||'アップロードに失敗しました'}; }
+  }
+  async function trackerDelDoc(token, pw, kind, id, docId){
+    await ensureClient();
+    const { error } = await sb.rpc('tracker_del_doc', {p_token:token, p_pw:pw, p_kind:kind, p_id:id, p_doc_id:docId});
+    if(error) return {error:_tkErr(error.message||'')};
+    return {ok:true};
+  }
+  /* 既にStorageにあるファイル（フォーム添付）を documents テーブルへ登録する。
+     ファイルは移動しない（パスをそのまま使う）。送客時に書類を引き継ぐために使う。 */
+  async function attachDocs(refId, docs){
+    if(!sb || !docs || !docs.length) return;
+    const rows=docs.filter(d=>d && d.path && d.path!=='(demo)').map(d=>({
+      id:d.id, referral_id:refId, name:d.name, kind:d.kind, size:d.size||0, mime:d.type||'', storage_path:d.path
+    }));
+    if(!rows.length) return;
+    try{ await sb.from('documents').insert(rows); }catch(e){ console.warn('attachDocs', e&&e.message); }
+  }
+  /* 紹介者が0人でも会社名を表示できるよう、会社名だけを取得する */  /* フォーム用トークン(?sub=)から「どの一次パートナーの、どの二次パートナーか」を引く。
      未ログインでも使える。これにより貴社名の入力が不要になり、表記ゆれが原理的に起きない。 */
   async function formPartnerInfo(formToken){
     await ensureClient();
@@ -1395,7 +1465,7 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     if(!sb) return;
     try{ await sb.from('login_logs').insert({agency_id:agId,success:!!success,method:method||'パスワード'}); }catch(e){ console.warn('login_log insert failed',e); }
   }
-  return { boot, ensureClient, signInPassword, signInOtp, signOut, resetPassword, updatePassword, partnerLogin, loginThen, loadAll, loadMessages, scheduleSync, syncNow, isBusy, delRow, insertReferral, subpartnerRegister, subpartnerList, subpartnerUpdate, trackerIssue, trackerGet, trackerSetPw, subpartnerPwGet, subpartnerPwSet, trackerView, trackerInfo, formPartnerInfo, trackerList, trackerRevoke, uploadDoc, docUrl, removeDoc, insertLoginLog, subscribeRealtime, unsubscribeRealtime, setRealtimeAuth, forceReconnectRealtime };
+  return { boot, ensureClient, signInPassword, signInOtp, signOut, resetPassword, updatePassword, partnerLogin, loginThen, loadAll, loadMessages, scheduleSync, syncNow, isBusy, delRow, insertReferral, subpartnerRegister, subpartnerList, subpartnerUpdate, trackerIssue, trackerGet, trackerSetPw, subpartnerPwGet, subpartnerPwSet, trackerView, trackerInfo, trackerRows, trackerUpdatePerson, trackerAddDoc, trackerDelDoc, attachDocs, formPartnerInfo, trackerList, trackerRevoke, uploadDoc, docUrl, removeDoc, insertLoginLog, subscribeRealtime, unsubscribeRealtime, setRealtimeAuth, forceReconnectRealtime };
 })();
 
 const LS_KEY = 'kanoa_relay_v22';
@@ -5165,6 +5235,9 @@ document.addEventListener('click', e=>{
       break;
     }
     case 'tracker-reload': refreshTracker(); break;
+    case 'tk-edit': openTrackerEdit(t.dataset.id); break;
+    case 'tk-edit-save': doTrackerEditSave(t.dataset.id); break;
+    case 'tk-doc-del': doTrackerDelDoc(t.dataset.id, t.dataset.doc); break;
     case 'tracker-tab': _tkTab=t.dataset.tab; renderTrackerList(); break;
     case 'myref-tab': myRefTab=t.dataset.tab; render(); break;
     case 'save-subacc-email': { const acc=(DB.subaccounts||[]).find(x=>x.id===t.dataset.id); if(acc){ acc.email=(document.getElementById('subAccEmail').value||'').trim(); save(); toast('保存しました'); closeModal(); } break; }
@@ -5420,6 +5493,11 @@ document.addEventListener('change', e=>{
   if(e.target.id==='fDoc'){ rFilter.docMode=e.target.value; renderRefChips(); renderRefTable(); }
   if(e.target.id==='fSessTbd'){ rFilter.sessTbd=e.target.checked; renderRefTable(); }
   if(e.target.dataset && e.target.dataset.act==='doc-input'){ if(e.target.files&&e.target.files.length) uploadDocs(e.target.dataset.ref, e.target.files, e.target.dataset.kind||''); }
+  // 進捗確認ページからの書類アップロード
+  if(e.target.dataset && e.target.dataset.act==='tk-file'){
+    if(e.target.files && e.target.files.length) doTrackerUpload(e.target.dataset.id, e.target.dataset.doc||'other', e.target.files[0]);
+    e.target.value='';
+  }
   if(e.target.dataset && e.target.dataset.act==='doc-kind'){ const r=DB.referrals.find(x=>x.id===e.target.dataset.ref); if(r){ const d=(r.docs||[]).find(x=>x.id===e.target.dataset.id); if(d){ d.kind=e.target.value; save(); if(S.view==='referrals') renderRefTable(); } } }
 });
 /* drag & drop file upload */
@@ -7563,11 +7641,19 @@ async function approveIntake(id, pjId){
   }
   const r=mk(pj, it.ag, it.name, it.kana||'', _pFmt, it.email||'', it.address||'', it.area||'', 'entry','—', todayISO());
   r.src=it.company||it.src||'';   // 紹介元＝入力された会社名
-  r.docs=Array.isArray(it.docs)?it.docs.slice():[];  // フォームの添付書類を引き継ぐ
+  // フォームの添付書類を引き継ぐ。intake側の kind（rireki/shoku）は
+  // 送客後に使う日本語ラベル（履歴書/職務経歴書）へ揃える。
+  const KIND_JA={rireki:'履歴書', shoku:'職務経歴書'};
+  r.docs=(Array.isArray(it.docs)?it.docs:[]).map(d=>({
+    ...d, kind: KIND_JA[d.kind] || (typeof inferKind==='function' ? inferKind(d.name) : 'その他')
+  }));
   if(S.role==='agency') r.seenK=false;  // KANOA未確認マーク（NEWバッジ）
   DB.referrals.unshift(r);
   // DBに確定登録（他社を含む電話番号の重複はここで確実に弾かれる）
   if(!(await commitReferral(r, it.name))){ return; }
+  // ★書類は documents テーブルに登録しないと、再読み込み後に消えてしまう
+  //   （ファイル本体はStorageに既にあるので、パスをそのまま登録する）
+  if(!DEMO_MODE && r.docs.length){ await SUPA.attachDocs(r.id, r.docs); }
   // 削除せず「送客済み」として履歴に残す
   it.status='approved'; it.refId=r.id; it.decidedAt=nowTS(); it.decidedAtISO=new Date().toISOString();
   if(typeof logRef==='function') logRef(r.id,'送客登録','パートナー連携から選考会へ');
@@ -9073,7 +9159,7 @@ async function openTracker(token){
   const pw=(document.getElementById('tkPw')||{}).value||'';
   if(!pw){ if(errEl) errEl.textContent='パスワードを入力してください'; return; }
   if(btn){ btn.disabled=true; btn.textContent='確認中…'; }
-  const res=await SUPA.trackerView(token, pw);
+  const res=await SUPA.trackerRows(token, pw);
   if(btn){ btn.disabled=false; btn.textContent='進捗を表示する'; }
   if(res.error){
     if(errEl) errEl.textContent =
@@ -9083,85 +9169,212 @@ async function openTracker(token){
     return;
   }
   _tkToken=token; _tkPw=pw;   // 「最新に更新」でパスワード再入力を求めないため保持
-  const rows=res.rows||[];
-  // 会社名：進捗データから取得。0件のときは専用RPCで取得する
-  let company = (rows[0] && rows[0].company) || '';
-  if(!company){ try{ company = await SUPA.trackerInfo(token, pw) || ''; }catch(e){} }
-  renderTrackerList(rows, company);
+  // 会社名は進捗データに含まれないため、専用RPCで取得する
+  let company='';
+  try{ company = await SUPA.trackerInfo(token, pw) || ''; }catch(e){}
+  renderTrackerList(res.rows||[], company);
 }
 
 let _tkRows=[]; let _tkTab='all'; let _tkCompany='';
 /* 「最新に更新」：ページを再読込せず（＝パスワード再入力を求めず）データだけ取り直す */
-async function refreshTracker(){
+async function refreshTracker(silent){
   if(!_tkToken || !_tkPw){ return; }
   const btn=document.querySelector('[data-act="tracker-reload"]');
-  if(btn){ btn.disabled=true; btn.textContent='更新中…'; }
-  const res=await SUPA.trackerView(_tkToken, _tkPw);
-  if(btn){ btn.disabled=false; btn.textContent='最新に更新'; }
+  if(btn && !silent){ btn.disabled=true; btn.textContent='更新中…'; }
+  const res=await SUPA.trackerRows(_tkToken, _tkPw);
+  if(btn && !silent){ btn.disabled=false; btn.textContent='最新に更新'; }
   if(res.error){
-    if(res.error==='BAD_PW' || res.error==='BAD_LINK'){ _tkToken=''; _tkPw=''; renderTrackerGate(_tkToken||new URLSearchParams(location.search).get('track')||''); return; }
+    if(res.error==='BAD_PW' || res.error==='BAD_LINK'){ _tkToken=''; _tkPw=''; renderTrackerGate(new URLSearchParams(location.search).get('track')||''); return; }
     toast('更新できませんでした'); return;
   }
-  const rows=res.rows||[];
-  const company=(rows[0] && rows[0].company) || _tkCompany || '';
-  renderTrackerList(rows, company);
-  toast('最新の情報に更新しました');
+  renderTrackerList(res.rows||[], _tkCompany);
+  if(!silent) toast('最新の情報に更新しました');
 }
+
+/* 状況ラベル。フォーム登録済み（未送客）は「確認中」として見せる */
+const TK_LBL={entry:'送客済',screening:'書類選考',interview:'選考会',offer:'内定',joined:'入社',rejected:'見送り',declined:'辞退'};
+function tkStatusLabel(r){
+  if(r.kind==='intake') return (r.status==='rejected') ? '見送り' : '確認中';
+  return TK_LBL[r.status] || r.status;
+}
+function tkStatusCls(r){
+  if(r.kind==='intake') return (r.status==='rejected') ? 'rejected' : 'entry';
+  return r.status;
+}
+function tkIsOut(r){
+  return (r.kind==='intake') ? r.status==='rejected' : (r.status==='rejected'||r.status==='declined');
+}
+/* 履歴書・職務経歴書の提出状況。intake は 'rireki'/'shoku'、送客済みは日本語ラベル */
+function tkDocStat(r){
+  const kinds=(r.docs||[]).map(d=>(d.kind||'')+'|'+(d.name||''));
+  const has=(code, ja, re)=> kinds.some(k=>{
+    const [kd,nm]=k.split('|');
+    return kd===code || kd===ja || re.test((nm||'').toLowerCase());
+  });
+  return {
+    rireki: has('rireki','履歴書', /履歴|rireki|resume/),
+    shoku:  has('shoku','職務経歴書', /職務|職歴|career|cv|shokumu/),
+    n:(r.docs||[]).length
+  };
+}
+function tkRow(id){ return (_tkRows||[]).find(r=>r.id===id); }
+
 function renderTrackerList(rows, company){
   if(rows) _tkRows=rows;
   if(company!==undefined && company!==null && company!=='') _tkCompany=company;
   const all=_tkRows||[];
-  const LBL={entry:'送客済',screening:'書類選考',interview:'選考会',offer:'内定',joined:'入社',rejected:'見送り',declined:'辞退'};
-  const cnt=k=>k==='all'?all.length:
-             k==='active'?all.filter(r=>r.status!=='rejected'&&r.status!=='declined'&&r.status!=='joined').length:
-             k==='out'?all.filter(r=>r.status==='rejected'||r.status==='declined').length:
-             all.filter(r=>r.status===k).length;
-  const pick=k=>k==='all'?all:
-               k==='active'?all.filter(r=>r.status!=='rejected'&&r.status!=='declined'&&r.status!=='joined'):
-               k==='out'?all.filter(r=>r.status==='rejected'||r.status==='declined'):
-               all.filter(r=>r.status===k);
+
+  const pick=k=>
+    k==='all'    ? all :
+    k==='intake' ? all.filter(r=>r.kind==='intake' && r.status!=='rejected') :
+    k==='active' ? all.filter(r=>r.kind==='referral' && r.status!=='rejected' && r.status!=='declined' && r.status!=='joined') :
+    k==='joined' ? all.filter(r=>r.status==='joined') :
+    k==='out'    ? all.filter(tkIsOut) :
+    all.filter(r=>r.kind==='referral' && r.status===k);
+  const cnt=k=>pick(k).length;
   const rowsF=pick(_tkTab);
 
-  const active=cnt('active'), joined=cnt('joined');
   const tab=(k,label)=>`<button type="button" data-act="tracker-tab" data-tab="${k}" style="background:none;border:none;cursor:pointer;padding:8px 2px;margin-right:18px;font-size:13.5px;white-space:nowrap;color:${_tkTab===k?'var(--ink)':'var(--soft)'};font-weight:${_tkTab===k?'700':'500'};border-bottom:2px solid ${_tkTab===k?'var(--accent)':'transparent'}">${label} <span style="font-weight:400">${cnt(k)}</span></button>`;
   const tabs=`<div style="display:flex;align-items:center;overflow-x:auto;border-bottom:1px solid var(--line);margin-bottom:14px">
-    ${tab('all','すべて')}${tab('active','選考中')}${tab('offer','内定')}${tab('joined','入社')}${tab('out','見送り・辞退')}
+    ${tab('all','すべて')}${tab('intake','確認中')}${tab('active','選考中')}${tab('offer','内定')}${tab('joined','入社')}${tab('out','見送り・辞退')}
   </div>`;
 
+  const docCell=r=>{
+    const s=tkDocStat(r);
+    const chip=(ok,label)=>`<span class="tag" style="font-size:10px;margin-right:3px;background:${ok?'#E8F6EE':'var(--gray-bg)'};color:${ok?'#15803D':'var(--soft)'};font-weight:${ok?'600':'400'}">${ok?'✓':'—'} ${label}</span>`;
+    return chip(s.rireki,'履歴書')+chip(s.shoku,'職務経歴書');
+  };
+
   const body = rowsF.length ? rowsF.map(r=>`<tr>
-      <td class="cell-strong">${esc(r.name)}</td>
-      <td><span class="tag" style="font-size:10px">${esc(r.project_name||'—')}</span></td>
-      <td style="text-align:center"><span class="badge bd-${esc(r.status)}">${esc(LBL[r.status]||r.status)}</span></td>
-      <td class="cell-sub">${esc(r.session||'—')}</td>
-      <td class="cell-sub">${esc(r.joined_on||'—')}</td>
+      <td class="cell-strong">${esc(r.name)}${r.kana?`<div class="cell-sub" style="font-size:11px">${esc(r.kana)}</div>`:''}</td>
+      <td><span class="tag" style="font-size:10px">${esc(r.projectName||'—')}</span></td>
+      <td style="text-align:center"><span class="badge bd-${esc(tkStatusCls(r))}">${esc(tkStatusLabel(r))}</span></td>
+      <td>${docCell(r)}</td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="btn btn-ghost btn-sm" style="padding:3px 9px;font-size:11px" data-act="tk-edit" data-id="${esc(r.id)}">編集</button>
+      </td>
     </tr>`).join('')
     : `<tr><td colspan="5" style="text-align:center;padding:28px"><span class="cell-sub">${all.length?'この状況の方はいません。':'まだご紹介いただいた方はいません。'}</span></td></tr>`;
 
+  const intakeN=cnt('intake');
   const host=document.getElementById('app')||document.body;
   host.innerHTML=`
   <div style="min-height:100vh;background:var(--bg,#f6f8fa);padding:24px">
-    <div style="max-width:900px;margin:0 auto">
+    <div style="max-width:960px;margin:0 auto">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
         <div>
-          <div style="font-weight:800;font-size:20px">${esc(_tkCompany||'ご紹介いただいた方の進捗')}</div>
-          <div style="font-size:12px;color:var(--soft);margin-top:3px">ご紹介いただいた方の進捗（閲覧専用）</div>
+          <div style="font-weight:800;font-size:20px">${esc(_tkCompany||'ご紹介いただいた方の一覧')}</div>
+          <div style="font-size:12px;color:var(--soft);margin-top:3px">ご紹介いただいた方の進捗確認・情報の編集・書類の提出ができます</div>
         </div>
         <button class="btn btn-ghost btn-sm" data-act="tracker-reload">最新に更新</button>
       </div>
       <div class="kpi-grid" style="margin-bottom:16px">
         ${kpi('ご紹介', all.length+'<span class="unit">名</span>','var(--accent)')}
-        ${kpi('選考中', active+'<span class="unit">名</span>','var(--b)')}
-        ${kpi('入社', joined+'<span class="unit">名</span>','var(--g)')}
+        ${kpi('確認中', intakeN+'<span class="unit">名</span>', intakeN?'var(--a)':'var(--muted)')}
+        ${kpi('選考中', cnt('active')+'<span class="unit">名</span>','var(--b)')}
+        ${kpi('入社', cnt('joined')+'<span class="unit">名</span>','var(--g)')}
       </div>
+      ${intakeN?`<div class="panel" style="padding:11px 14px;margin-bottom:14px;background:#FDF2E2;border:1px solid #F5DEB8">
+        <div style="font-size:12.5px;color:#B45309;font-weight:600;margin-bottom:2px">確認中の方が ${intakeN} 名います</div>
+        <div style="font-size:11.5px;color:#92400E">フォームから登録いただいた方です。担当パートナーが内容を確認し、選考へ進めます。書類が未提出の方は「編集」から追加できます。</div>
+      </div>`:''}
       ${tabs}
       <div class="panel tbl-wrap"><table class="tbl"><thead><tr>
-        <th>お名前</th><th>案件</th><th style="text-align:center">選考状況</th><th>面談</th><th>入社日</th>
+        <th>お名前</th><th>案件</th><th style="text-align:center">状況</th><th>書類</th><th></th>
       </tr></thead><tbody>${body}</tbody></table></div>
       <div style="text-align:center;font-size:11px;color:var(--soft);margin-top:18px">
         内容についてのお問い合わせは、担当のパートナー企業さまへお願いいたします。
       </div>
     </div>
   </div>`;
+}
+
+/* ───────── 進捗確認ページ：求職者情報の編集 ───────── */
+function openTrackerEdit(id){
+  const r=tkRow(id);
+  if(!r){ toast('対象が見つかりません'); return; }
+  const s=tkDocStat(r);
+  const docChip=(ok,label,kindCode)=>`
+    <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;margin-bottom:6px">
+      <span style="flex:1;font-size:12.5px;font-weight:600;color:${ok?'#15803D':'var(--soft)'}">${ok?'✓ ':''}${label}${ok?'（提出済み）':'（未提出）'}</span>
+      <label class="btn btn-ghost btn-sm" style="padding:3px 10px;font-size:11px;cursor:pointer;margin:0">
+        ${ok?'差し替え':'アップロード'}
+        <input type="file" data-act="tk-file" data-id="${esc(r.id)}" data-doc="${kindCode}" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png" style="display:none">
+      </label>
+    </div>`;
+  const files=(r.docs||[]).map(d=>`
+    <div style="display:flex;align-items:center;gap:6px;padding:5px 0;font-size:11.5px;border-bottom:1px solid var(--line)">
+      <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📎 ${esc(d.name||'')}</span>
+      <button class="btn btn-ghost btn-sm" style="padding:2px 7px;font-size:10.5px" data-act="tk-doc-del" data-id="${esc(r.id)}" data-doc="${esc(d.id||'')}">取り消し</button>
+    </div>`).join('');
+
+  showModal(`
+    <div class="modal-title">${esc(r.name)} さまの情報</div>
+    <div class="modal-sub">${esc(tkStatusLabel(r))}${r.projectName?` ・ ${esc(r.projectName)}`:''}</div>
+    <div class="field full"><label>お名前 <span style="color:var(--r)">*</span></label><input id="tkeName" value="${esc(r.name)}"></div>
+    <div class="field full"><label>フリガナ</label><input id="tkeKana" value="${esc(r.kana)}"></div>
+    <div class="field full"><label>電話番号</label><input id="tkePhone" value="${esc(r.phone)}" placeholder="090-1234-5678"></div>
+    <div class="field full"><label>メールアドレス</label><input id="tkeEmail" value="${esc(r.email)}" placeholder="example@example.com"></div>
+    <div class="field full"><label>希望エリア</label><select id="tkeArea">${areaOptions(r.area)}</select></div>
+    <div class="field full"><label>備考</label><textarea id="tkeNote" rows="2">${esc(r.note)}</textarea></div>
+
+    <div class="field full" style="margin-top:6px">
+      <label>書類</label>
+      ${docChip(s.rireki,'履歴書','rireki')}
+      ${docChip(s.shoku,'職務経歴書','shoku')}
+      ${files?`<div style="margin-top:6px">${files}</div>`:'<div class="cell-sub" style="font-size:11px">まだ書類が提出されていません。</div>'}
+      <div class="cell-sub" style="font-size:11px;margin-top:5px">PDF / Word / Excel / 画像（1ファイル25MBまで）</div>
+    </div>
+
+    <div id="tkeErr" style="color:var(--r);font-size:12px;min-height:16px"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" data-act="closemodal">閉じる</button>
+      <button class="btn btn-primary" id="tkeBtn" data-act="tk-edit-save" data-id="${esc(r.id)}">保存する</button>
+    </div>`);
+}
+
+async function doTrackerEditSave(id){
+  const r=tkRow(id); if(!r) return;
+  const errEl=document.getElementById('tkeErr');
+  const btn=document.getElementById('tkeBtn');
+  const v=x=>((document.getElementById(x)||{}).value||'').trim();
+  const name=v('tkeName');
+  if(!name){ if(errEl) errEl.textContent='お名前を入力してください'; return; }
+  if(btn){ btn.disabled=true; btn.textContent='保存中…'; }
+  const res=await SUPA.trackerUpdatePerson(_tkToken, _tkPw, r.kind, r.id, {
+    name, kana:v('tkeKana'), phone:v('tkePhone'), email:v('tkeEmail'), area:v('tkeArea'), note:v('tkeNote')
+  });
+  if(btn){ btn.disabled=false; btn.textContent='保存する'; }
+  if(res.error){ if(errEl) errEl.textContent='保存に失敗しました：'+res.error; return; }
+  closeModal();
+  await refreshTracker(true);
+  toast('保存しました');
+}
+
+/* 書類のアップロード（intake は intake.docs、送客済みは documents テーブルへ） */
+async function doTrackerUpload(id, docCode, file){
+  const r=tkRow(id); if(!r||!file) return;
+  if(file.size>25*1048576){ toast('ファイルは25MBまでです'); return; }
+  // 送客済みは日本語ラベル、フォーム登録は 'rireki'/'shoku' で保存する
+  const kind = (r.kind==='referral')
+    ? (docCode==='rireki'?'履歴書':docCode==='shoku'?'職務経歴書':'その他')
+    : docCode;
+  toast('アップロード中…');
+  const res=await SUPA.trackerAddDoc(_tkToken, _tkPw, r.kind, r.id, file, kind);
+  if(res.error){ toast('アップロードに失敗しました：'+res.error); return; }
+  await refreshTracker(true);
+  openTrackerEdit(id);   // モーダルを開き直して最新の提出状況を見せる
+  toast('提出しました');
+}
+
+async function doTrackerDelDoc(id, docId){
+  const r=tkRow(id); if(!r) return;
+  if(!confirm('この書類を取り消しますか？')) return;
+  const res=await SUPA.trackerDelDoc(_tkToken, _tkPw, r.kind, r.id, docId);
+  if(res.error){ toast('取り消しに失敗しました：'+res.error); return; }
+  await refreshTracker(true);
+  openTrackerEdit(id);
+  toast('取り消しました');
 }
 
 /* boot */
