@@ -1171,6 +1171,28 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     if(error) return {error:error.message};
     return {ok:!!data};
   }
+  /* ── 進捗確認パスワードの表示 ────────────────────────────────
+     pw_hash は bcrypt（一方向）なので復元できない。表示用に平文コピー(pw_plain)を持たせ、
+     登録した一次パートナー本人だけが RPC 経由で取り出せるようにしている。            */
+  async function subpartnerPwGet(company){
+    if(!sb) return null;
+    const { data, error } = await sb.rpc('subpartner_pw_get', {p_company:company});
+    if(error) return null;
+    return (data==null || data==='') ? null : String(data);
+  }
+  /* パスワードを変更する（ハッシュと平文を必ず同時に更新する） */
+  async function subpartnerPwSet(company, pw){
+    if(!sb) return {error:'未接続'};
+    const { error } = await sb.rpc('subpartner_pw_set', {p_company:company, p_pw:pw});
+    if(error){
+      const m=(error.message||'');
+      if(/PW_TOO_SHORT/.test(m))  return {error:'パスワードは4文字以上にしてください'};
+      if(/NOT_FOUND/.test(m))     return {error:'対象の二次パートナーが見つかりません'};
+      if(/NOT_A_PARTNER/.test(m)) return {error:'この操作の権限がありません'};
+      return {error:m||'変更に失敗しました'};
+    }
+    return {ok:true};
+  }
   async function trackerInfo(token, pw){
     await ensureClient();
     const { data, error } = await sb.rpc('tracker_info', {p_token:token, p_pw:pw});
@@ -1373,7 +1395,7 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     if(!sb) return;
     try{ await sb.from('login_logs').insert({agency_id:agId,success:!!success,method:method||'パスワード'}); }catch(e){ console.warn('login_log insert failed',e); }
   }
-  return { boot, ensureClient, signInPassword, signInOtp, signOut, resetPassword, updatePassword, partnerLogin, loginThen, loadAll, loadMessages, scheduleSync, syncNow, isBusy, delRow, insertReferral, subpartnerRegister, subpartnerList, subpartnerUpdate, trackerIssue, trackerGet, trackerSetPw, trackerView, trackerInfo, formPartnerInfo, trackerList, trackerRevoke, uploadDoc, docUrl, removeDoc, insertLoginLog, subscribeRealtime, unsubscribeRealtime, setRealtimeAuth, forceReconnectRealtime };
+  return { boot, ensureClient, signInPassword, signInOtp, signOut, resetPassword, updatePassword, partnerLogin, loginThen, loadAll, loadMessages, scheduleSync, syncNow, isBusy, delRow, insertReferral, subpartnerRegister, subpartnerList, subpartnerUpdate, trackerIssue, trackerGet, trackerSetPw, subpartnerPwGet, subpartnerPwSet, trackerView, trackerInfo, formPartnerInfo, trackerList, trackerRevoke, uploadDoc, docUrl, removeDoc, insertLoginLog, subscribeRealtime, unsubscribeRealtime, setRealtimeAuth, forceReconnectRealtime };
 })();
 
 const LS_KEY = 'kanoa_relay_v22';
@@ -5125,6 +5147,16 @@ document.addEventListener('click', e=>{
     case 'tracker-open': openTracker(t.dataset.token); break;
     case 'tracker-issue-do': doIssueTrackerLink(t.dataset.company); break;
     case 'tracker-setpw': doSetTrackerPw(t.dataset.company); break;
+    case 'tracker-pw-toggle': {
+      const el=document.getElementById('tkPwView'); if(!el) break;
+      const shown = el.dataset.shown==='1';
+      const pw = el.dataset.pw||'';
+      el.dataset.shown = shown ? '0' : '1';
+      el.textContent   = shown ? pwMask(pw) : pw;   // textContent なのでエスケープ不要
+      t.innerHTML      = shown ? EYE_ON : EYE_OFF;
+      t.title          = shown ? '表示' : '隠す';
+      break;
+    }
     case 'tracker-copy': {
       const parts=[];
       if(t.dataset.form) parts.push('【求職者ご紹介フォーム】\n'+t.dataset.form);
@@ -8558,6 +8590,11 @@ function subAccountFor(ag, company){
 
 /* アカウント発行（一次パートナーが実行） */
 
+/* 目アイコン（パスワードの表示/非表示） */
+const EYE_ON  = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+const EYE_OFF = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+const pwMask  = pw => '•'.repeat(Math.min((pw||'').length, 12));
+
 /* 二次パートナー向け「進捗確認リンク」を発行する（パートナー企業が操作） */
 async function issueTrackerLink(company){
   const norm=(company||'').trim();
@@ -8570,15 +8607,20 @@ async function issueTrackerLink(company){
 
   if(existing && existing.token){
     const url=base+'?track='+existing.token;
-    const formUrl=existing.formToken ? (base+'?form='+encodeURIComponent(S.agencyId)+'&sub='+existing.formToken) : '';
+    const pw = await SUPA.subpartnerPwGet(norm);   // 平文が保存されていれば表示できる
     showModal(`
-      <div class="modal-title">${esc(norm)} さまのリンク</div>
+      <div class="modal-title">${esc(norm)} さまの進捗確認リンク</div>
       <div class="modal-sub">発行済みのリンクです。<b>URLは変わりません</b>ので、そのままお使いいただけます。</div>
       <div class="info-card" style="margin-top:6px">
-        ${formUrl?`<div class="info-row"><span class="info-label">紹介フォーム</span><span class="info-val mono" style="font-size:11px">${esc(formUrl)}</span><button class="copy-btn" data-act="copy" data-v="${esc(formUrl)}">コピー</button></div>`:''}
         <div class="info-row"><span class="info-label">進捗確認</span><span class="info-val mono" style="font-size:11px">${esc(url)}</span><button class="copy-btn" data-act="copy" data-v="${esc(url)}">コピー</button></div>
-        <div class="info-row"><span class="info-label">パスワード</span><span class="info-val" style="color:var(--soft)">設定済み（表示できません）</span></div>
-        <div style="margin-top:10px"><button class="btn btn-primary btn-sm" data-act="tracker-copy" data-form="${esc(formUrl)}" data-url="${esc(url)}" data-pw="（お伝え済みのパスワード）">リンクをまとめてコピー</button></div>
+        <div class="info-row"><span class="info-label">パスワード</span>
+          ${pw
+            ? `<span class="info-val mono" id="tkPwView" data-pw="${esc(pw)}" data-shown="0">${pwMask(pw)}</span>
+               <button class="copy-btn" data-act="tracker-pw-toggle" title="表示" style="margin-right:5px;display:inline-flex;align-items:center">${EYE_ON}</button>
+               <button class="copy-btn" data-act="copy" data-v="${esc(pw)}">コピー</button>`
+            : `<span class="info-val" style="color:var(--soft);font-size:11.5px">表示できません（下で変更すると、以降は表示できます）</span>`}
+        </div>
+        ${pw?`<div style="margin-top:10px"><button class="btn btn-primary btn-sm" data-act="tracker-copy" data-url="${esc(url)}" data-pw="${esc(pw)}">リンクとパスワードをまとめてコピー</button></div>`:''}
       </div>
       <div class="field full" style="margin-top:14px">
         <label>パスワードを変更する場合のみ入力</label>
@@ -8598,7 +8640,7 @@ async function issueTrackerLink(company){
   const pw=(typeof genPw==='function')? genPw() : ('kanoa'+Math.random().toString(36).slice(2,8));
   showModal(`
     <div class="modal-title">${esc(norm)} さまへのリンクを発行</div>
-    <div class="modal-sub">発行すると、<b>その会社専用の「紹介フォーム」と「進捗確認ページ」</b>が作られます。フォームは貴社名が自動で入るため、表記のゆれが起きません。</div>
+    <div class="modal-sub">発行すると、<b>その会社専用の「進捗確認ページ」</b>が作られます。紹介した方の選考状況を、お相手が自分で確認できるようになります。</div>
     <div class="field full">
       <label>パスワード（進捗確認ページ用）</label>
       <input id="tkNewPw" value="${esc(pw)}">
@@ -8620,21 +8662,30 @@ async function issueTrackerLink(company){
     </div>`);
 }
 
-/* 既存リンクのパスワードだけ変更（URLは変わらない） */
+/* 既存リンクのパスワードだけ変更（URLは変わらない）。ハッシュと表示用の平文を同時に更新する */
 async function doSetTrackerPw(company){
   const errEl=document.getElementById('tkIssueErr');
   const btn=document.getElementById('tkPwBtn');
-  const pw=(document.getElementById('tkNewPw')||{}).value||'';
-  if(pw.trim().length<4){ if(errEl) errEl.textContent='パスワードは4文字以上にしてください'; return; }
+  const pw=((document.getElementById('tkNewPw')||{}).value||'').trim();
+  if(pw.length<4){ if(errEl) errEl.textContent='パスワードは4文字以上にしてください'; return; }
   if(btn){ btn.disabled=true; btn.textContent='変更中…'; }
-  const res=await SUPA.trackerSetPw(company, pw.trim());
+  const res=await SUPA.subpartnerPwSet(company, pw);
   if(btn){ btn.disabled=false; btn.textContent='パスワードを変更'; }
   if(res.error){ if(errEl) errEl.textContent='変更に失敗しました：'+res.error; return; }
   if(errEl) errEl.textContent='';
+
+  // 上部のパスワード表示も新しい値に差し替える
+  const view=document.getElementById('tkPwView');
+  if(view){
+    view.dataset.pw=pw;
+    view.textContent = view.dataset.shown==='1' ? pw : pwMask(pw);
+    const cp=view.parentElement && view.parentElement.querySelector('[data-act="copy"]');
+    if(cp) cp.dataset.v=pw;
+  }
   const out=document.getElementById('tkIssueOut');
   if(out) out.innerHTML=`<div class="info-card" style="margin-top:8px">
     <div style="font-size:12px;font-weight:700;color:var(--g);margin-bottom:6px">パスワードを変更しました</div>
-    <div class="info-row"><span class="info-label">新しいパスワード</span><span class="info-val mono">${esc(pw.trim())}</span><button class="copy-btn" data-act="copy" data-v="${esc(pw.trim())}">コピー</button></div>
+    <div class="info-row"><span class="info-label">新しいパスワード</span><span class="info-val mono">${esc(pw)}</span><button class="copy-btn" data-act="copy" data-v="${esc(pw)}">コピー</button></div>
     <div class="cell-sub" style="font-size:11px;margin-top:6px">お相手にお伝えください。URLは変わっていません。</div>
   </div>`;
 }
@@ -8642,25 +8693,25 @@ async function doSetTrackerPw(company){
 async function doIssueTrackerLink(company){
   const errEl=document.getElementById('tkIssueErr');
   const btn=document.getElementById('tkIssueBtn');
-  const pw=(document.getElementById('tkNewPw')||{}).value||'';
+  const pw=((document.getElementById('tkNewPw')||{}).value||'').trim();
   const days=parseInt((document.getElementById('tkDays')||{}).value||'90',10);
-  if(pw.trim().length<4){ if(errEl) errEl.textContent='パスワードは4文字以上にしてください'; return; }
+  if(pw.length<4){ if(errEl) errEl.textContent='パスワードは4文字以上にしてください'; return; }
   if(btn){ btn.disabled=true; btn.textContent='発行中…'; }
-  const res=await SUPA.trackerIssue(company, pw.trim(), days);
+  const res=await SUPA.trackerIssue(company, pw, days);
+  if(res.error){ if(btn){ btn.disabled=false; btn.textContent='リンクを発行'; } if(errEl) errEl.textContent='発行に失敗しました：'+res.error; return; }
+  // 次回以降このモーダルでパスワードを表示できるよう、表示用のコピーも保存する
+  const sv=await SUPA.subpartnerPwSet(company, pw);
   if(btn){ btn.disabled=false; btn.textContent='リンクを発行'; }
-  if(res.error){ if(errEl) errEl.textContent='発行に失敗しました：'+res.error; return; }
   const base=location.origin+location.pathname;
   const url=base+'?track='+res.token;
-  const formUrl=res.formToken ? (base+'?form='+encodeURIComponent(S.agencyId)+'&sub='+res.formToken) : '';
   const out=document.getElementById('tkIssueOut');
   if(out) out.innerHTML=`
     <div class="info-card" style="margin-top:10px">
       <div style="font-size:12px;font-weight:700;color:var(--g);margin-bottom:8px">発行しました。以下をお相手にお伝えください。</div>
-      ${formUrl?`<div class="info-row"><span class="info-label">紹介フォーム</span><span class="info-val mono" style="font-size:11px">${esc(formUrl)}</span><button class="copy-btn" data-act="copy" data-v="${esc(formUrl)}">コピー</button></div>`:''}
       <div class="info-row"><span class="info-label">進捗確認</span><span class="info-val mono" style="font-size:11px">${esc(url)}</span><button class="copy-btn" data-act="copy" data-v="${esc(url)}">コピー</button></div>
-      <div class="info-row"><span class="info-label">パスワード</span><span class="info-val mono">${esc(pw.trim())}</span><button class="copy-btn" data-act="copy" data-v="${esc(pw.trim())}">コピー</button></div>
-      <div style="margin-top:10px"><button class="btn btn-primary btn-sm" data-act="tracker-copy" data-form="${esc(formUrl)}" data-url="${esc(url)}" data-pw="${esc(pw.trim())}">まとめてコピー</button></div>
-      <div class="cell-sub" style="font-size:11px;margin-top:8px">紹介フォームは貴社名が自動で入るため、お相手は入力不要です。パスワードは進捗確認ページ用で、安全のため保存されません。</div>
+      <div class="info-row"><span class="info-label">パスワード</span><span class="info-val mono">${esc(pw)}</span><button class="copy-btn" data-act="copy" data-v="${esc(pw)}">コピー</button></div>
+      <div style="margin-top:10px"><button class="btn btn-primary btn-sm" data-act="tracker-copy" data-url="${esc(url)}" data-pw="${esc(pw)}">まとめてコピー</button></div>
+      <div class="cell-sub" style="font-size:11px;margin-top:8px">${sv.error?'※パスワードの保存に一部失敗したため、この画面を閉じると再表示できません。必ず控えてください。':'このパスワードは、あとからこの画面で確認できます。'}</div>
     </div>`;
   if(errEl) errEl.textContent='';
 }
