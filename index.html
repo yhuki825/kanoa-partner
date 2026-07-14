@@ -1111,6 +1111,21 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     return { agencyId:data[0].agency_id, company:data[0].company };
   }
   /* 既に発行済みのリンクを取得（毎回新規発行しないため）。無ければ null */
+  /* 二次パートナーを登録する（名前だけ。リンクは後から発行できる） */
+  async function subpartnerRegister(company){
+    if(!sb) return {error:'未接続'};
+    const { data, error } = await sb.rpc('subpartner_register', {p_company:company});
+    if(error) return {error:error.message};
+    const d=(typeof data==='string')?(()=>{try{return JSON.parse(data);}catch(e){return {};}})():(data||{});
+    return { token:d.token, formToken:d.form_token, existed:!!d.existed };
+  }
+  /* 登録済みの二次パートナー一覧（自社のみ） */
+  async function subpartnerList(){
+    if(!sb) return [];
+    const { data, error } = await sb.rpc('subpartner_list');
+    if(error || !data) return [];
+    return data.map(r=>({company:r.company, formToken:r.form_token, token:r.token}));
+  }
   async function trackerGet(company){
     if(!sb) return null;
     const { data, error } = await sb.rpc('tracker_get', {p_company:company});
@@ -1327,7 +1342,7 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     if(!sb) return;
     try{ await sb.from('login_logs').insert({agency_id:agId,success:!!success,method:method||'パスワード'}); }catch(e){ console.warn('login_log insert failed',e); }
   }
-  return { boot, ensureClient, signInPassword, signInOtp, signOut, resetPassword, updatePassword, partnerLogin, loginThen, loadAll, loadMessages, scheduleSync, syncNow, isBusy, delRow, insertReferral, trackerIssue, trackerGet, trackerSetPw, trackerView, trackerInfo, formPartnerInfo, trackerList, trackerRevoke, uploadDoc, docUrl, removeDoc, insertLoginLog, subscribeRealtime, unsubscribeRealtime, setRealtimeAuth, forceReconnectRealtime };
+  return { boot, ensureClient, signInPassword, signInOtp, signOut, resetPassword, updatePassword, partnerLogin, loginThen, loadAll, loadMessages, scheduleSync, syncNow, isBusy, delRow, insertReferral, subpartnerRegister, subpartnerList, trackerIssue, trackerGet, trackerSetPw, trackerView, trackerInfo, formPartnerInfo, trackerList, trackerRevoke, uploadDoc, docUrl, removeDoc, insertLoginLog, subscribeRealtime, unsubscribeRealtime, setRealtimeAuth, forceReconnectRealtime };
 })();
 
 const LS_KEY = 'kanoa_relay_v22';
@@ -3449,10 +3464,6 @@ function threadCtxHeader(ag, viewer, curRef){
     ${pipelineStepper(r, viewer)}
     <div class="cmd-facts">
       ${docChips}
-      <span class="fact-chip" data-act="${hasSession?'open-ref':'schedule-msg'}" ${hasSession?`data-id="${r.id}"`:`data-ref="${r.id}" data-ag="${ag}"`}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
-        選考会 ${hasSession?esc(r.session):'<span class="fc-k">調整</span>'}
-      </span>
       ${r.joined?`<span class="fact-chip ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M9 11l3 3L22 4"/></svg>入社 ${joinedYM(r)}</span>`:''}
     </div>
     ${hint?`<div class="next-hint">
@@ -5071,7 +5082,10 @@ document.addEventListener('click', e=>{
     case 'intake-tab': intakeTab=t.dataset.tab; render(); break;
     case 'intake-doc': openIntakeDoc(t.dataset.ik, +t.dataset.di); break;
     case 'intake-import': openIntakeImport(); break;
-    case 'form-share': _formShareProjs=null; openFormShare(); break;
+    case 'form-share': _formShareProjs=null; _formShareSub=''; openFormShare(); break;
+    case 'subpartner-add': openSubPartnerAdd(); break;
+    case 'subpartner-add-do': doSubPartnerAdd(); break;
+    case 'fshare-sub': _formShareSub=t.value||''; renderFormShareModal(); break;
     case 'fshare-toggle': { const pj=t.dataset.pj; if(!_formShareProjs) _formShareProjs=new Set(); if(_formShareProjs.has(pj)) _formShareProjs.delete(pj); else _formShareProjs.add(pj); renderFormShareModal(); break; }
     case 'toggle-subpartner': { const k=t.dataset.key; _openSubPartner = (_openSubPartner===k)?null:k; render(); break; }
     case 'issue-subacc': issueTrackerLink(t.dataset.company); break;
@@ -5333,6 +5347,7 @@ document.addEventListener('keydown', e=>{
   }
 });
 document.addEventListener('change', e=>{
+  if(e.target.id==='fshareSub'){ _formShareSub=e.target.value||''; renderFormShareModal(); return; }
   if(e.target.id==='rPj'){ rFilter.pj=e.target.value; renderRefChips(); renderRefTable(); }
   if(e.target.id==='rAg'){ rFilter.ag=e.target.value; renderRefChips(); renderRefTable(); }
   if(['fSessFrom','fSessTo','fJoinFrom','fJoinTo','fCrFrom','fCrTo'].includes(e.target.id)){ const map={fSessFrom:'sessFrom',fSessTo:'sessTo',fJoinFrom:'joinFrom',fJoinTo:'joinTo',fCrFrom:'crFrom',fCrTo:'crTo'}; rFilter[map[e.target.id]]=e.target.value; renderRefTable(); }
@@ -7943,6 +7958,48 @@ function intakeFormDone(partnerName){
 
 /* パートナーがフォームURLを発行するモーダル */
 let _formShareProjs = null;  // フォームに公開する案件（Set of pjId）。nullなら全公開
+/* 二次パートナーを登録する（会社名のみ。ここで登録した会社がフォーム発行時に選べる） */
+function openSubPartnerAdd(){
+  if(DEMO_MODE){ toast('デモモードでは登録できません'); return; }
+  showModal(`
+    <div class="modal-title">二次パートナーを登録</div>
+    <div class="modal-sub">登録した会社は、<b>紹介フォームの発行時に選べる</b>ようになります。会社名はここで登録したものが使われるため、表記のゆれが起きません。</div>
+    <div class="field full">
+      <label>会社名</label>
+      <input id="spNewName" placeholder="株式会社◯◯" autocomplete="off">
+      <div class="cell-sub" style="font-size:11px;margin-top:3px">正式名称で登録してください（後から変更はできません）。</div>
+    </div>
+    <div id="spAddErr" style="color:var(--r);font-size:12px;min-height:16px"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" data-act="closemodal">閉じる</button>
+      <button class="btn btn-primary" id="spAddBtn" data-act="subpartner-add-do">登録する</button>
+    </div>`);
+  setTimeout(()=>{ const el=document.getElementById('spNewName'); if(el) el.focus(); }, 40);
+}
+async function doSubPartnerAdd(){
+  const errEl=document.getElementById('spAddErr');
+  const btn=document.getElementById('spAddBtn');
+  const name=((document.getElementById('spNewName')||{}).value||'').trim();
+  if(!name){ if(errEl) errEl.textContent='会社名を入力してください'; return; }
+  if(btn){ btn.disabled=true; btn.textContent='登録中…'; }
+  const res=await SUPA.subpartnerRegister(name);
+  if(btn){ btn.disabled=false; btn.textContent='登録する'; }
+  if(res.error){ if(errEl) errEl.textContent='登録に失敗しました：'+res.error; return; }
+  _subPartnerCache=null;   // 一覧を作り直す
+  closeModal();
+  toast(res.existed ? `「${name}」は既に登録されています` : `「${name}」を登録しました`);
+  render();
+}
+
+/* 登録済み二次パートナーの一覧（フォーム発行のプルダウン用にキャッシュ） */
+let _subPartnerCache=null;
+async function loadSubPartners(){
+  if(_subPartnerCache) return _subPartnerCache;
+  if(DEMO_MODE) return (_subPartnerCache=[]);
+  _subPartnerCache = await SUPA.subpartnerList();
+  return _subPartnerCache;
+}
+
 function openFormShare(){
   const agId=S.agencyId;
   const projs = agencyProjects(agId);   // このパートナーに公開されている案件
@@ -7958,7 +8015,10 @@ function renderFormShareModal(){
   // 選択された案件をURLに含める（公開する案件だけをパートナーに見せる）
   const chosen = projs.filter(p=>sel.has(p.id)).map(p=>p.id);
   const pjParam = (chosen.length && chosen.length<projs.length) ? `&pj=${encodeURIComponent(chosen.join(','))}` : '';
-  const url=`${base}?form=${encodeURIComponent(agId)}${pjParam}`;
+  const subs = _subPartnerCache || [];
+  const subParam = _formShareSub ? `&sub=${encodeURIComponent(_formShareSub)}` : '';
+  const url=`${base}?form=${encodeURIComponent(agId)}${pjParam}${subParam}`;
+  const subOpts = subs.map(s=>`<option value="${esc(s.formToken||'')}"${s.formToken===_formShareSub?' selected':''}>${esc(s.company)}</option>`).join('');
   const projRows = projs.length ? projs.map(p=>{
     const on=sel.has(p.id);
     return `<label style="display:flex;align-items:center;gap:9px;padding:8px 10px;border:1px solid ${on?'var(--accent)':'var(--line)'};border-radius:9px;cursor:pointer;background:${on?'var(--accent-soft)':'var(--surface)'};margin-bottom:6px">
@@ -7970,15 +8030,30 @@ function renderFormShareModal(){
     <div class="modal-title">紹介フォームを発行</div>
     <div class="modal-sub">パートナーに見せる案件を選び、URLを共有してください。選んだ案件だけがフォームに表示されます。</div>
     <div class="field full">
+      <label>紹介先の二次パートナー</label>
+      ${subs.length
+        ? `<select id="fshareSub">
+             <option value="">選択してください</option>${subOpts}
+           </select>
+           <div class="cell-sub" style="font-size:11px;margin-top:3px">選ぶと、フォームの「貴社名」に自動で入ります（相手は入力不要）。</div>`
+        : `<div class="cell-sub" style="font-size:12px;padding:9px 11px;border:1px dashed var(--line);border-radius:8px">
+             まだ二次パートナーが登録されていません。先に「二次パートナーを登録」してください。
+           </div>`}
+    </div>
+    <div class="field full">
       <label>このパートナーに公開する案件（${sel.size}/${projs.length}）</label>
-      <div style="max-height:26vh;overflow-y:auto">${projRows}</div>
+      <div style="max-height:22vh;overflow-y:auto">${projRows}</div>
     </div>
     <div class="field full" style="margin-top:8px">
       <label>フォームURL</label>
-      <div style="display:flex;gap:8px">
-        <input id="formUrlInput" readonly value="${esc(url)}" style="flex:1;padding:9px 11px;border:1px solid var(--line);border-radius:8px;font-size:12px;background:var(--gray-bg)">
-        <button class="btn btn-primary btn-sm" data-act="copy-form-url">コピー</button>
-      </div>
+      ${_formShareSub
+        ? `<div style="display:flex;gap:8px">
+             <input id="formUrlInput" readonly value="${esc(url)}" style="flex:1;padding:9px 11px;border:1px solid var(--line);border-radius:8px;font-size:12px;background:var(--gray-bg)">
+             <button class="btn btn-primary btn-sm" data-act="copy-form-url">コピー</button>
+           </div>`
+        : `<div class="cell-sub" style="font-size:12px;padding:10px 11px;border:1px dashed var(--line);border-radius:8px;background:var(--gray-bg)">
+             上で二次パートナーを選ぶと、その会社専用のURLが表示されます。
+           </div>`}
     </div>
     <div class="panel" style="padding:11px 13px;margin-top:10px;background:var(--gray-bg)">
       <div style="font-size:12px;color:var(--soft);line-height:1.8">
@@ -8246,7 +8321,7 @@ function subPartnerCard(sp, isK){
 function viewSubPartners(){
   const isK = S.role==='kanoa';
   setHeader(isK?'二次パートナー':'パートナー', isK?'一次パートナーの下にいる二次パートナーと送客状況を一覧で確認できます':'代理店パートナーごとに、紹介された方の進捗・書類の不足・提出を管理できます',
-    isK?'':'<button class="btn btn-primary btn-sm" data-act="form-share">紹介フォームを発行</button>');
+    isK?'':'<button class="btn btn-ghost btn-sm" data-act="subpartner-add" style="margin-right:8px">二次パートナーを登録</button><button class="btn btn-primary btn-sm" data-act="form-share">紹介フォームを発行</button>');
   const c=document.getElementById('content');
 
   const list = isK ? allSubPartners() : subPartnersOf(S.agencyId);
