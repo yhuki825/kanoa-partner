@@ -1739,6 +1739,7 @@ function docsSection(r){
       ${docSlot(r,'履歴書','履歴書','顔写真付き推奨')}
       ${docSlot(r,'職務経歴書','職務経歴書','')}
     </div>
+    ${docGuideLink('font-size:11.5px;margin-top:8px')}
     ${offerSlots?`<div class="dt-block-title" style="margin-top:14px">内定後の必要書類</div><div class="doc-slots">${offerSlots}</div>`:''}
     <div class="dt-block-title" style="margin-top:14px">その他の資料</div>
     <label class="dropzone slim" data-ref="${r.id}">
@@ -1749,6 +1750,76 @@ function docsSection(r){
     </label>
     ${otherDocs.map(d=>docItemRow(r,d)).join('')}`;
 }
+
+/* ════════════════════ 書類の雛形・記入見本 ════════════════════
+   Supabaseの公開バケット（templates）に置いたファイルを配布する。
+   紹介フォームと進捗確認ページは未ログイン（anonキー）で開かれるため、
+   署名付きURLが不要な public バケットに置く必要がある。
+   ・バケット名：templates（Public bucket として作成）
+   ・ファイル名を固定しておけば、中身を差し替えるだけで全画面に反映される      */
+const DOC_TEMPLATES = [
+  { file:'rireki_template.xlsx', label:'履歴書',    kind:'雛形', desc:'Excel形式。空欄を埋めてご提出ください。' },
+  { file:'rireki_sample.pdf',    label:'履歴書',    kind:'記入見本', desc:'記入例（架空の人物）。書き方の参考にしてください。' },
+  { file:'shoku_template.xlsx',  label:'職務経歴書', kind:'雛形', desc:'Excel形式。会社ごとに追記できます。' },
+  { file:'shoku_sample.pdf',     label:'職務経歴書', kind:'記入見本', desc:'記入例（架空の人物）。書き方の参考にしてください。' }
+];
+function tplUrl(file){
+  const base=(CONFIG.SB_URL||'').replace(/\/+$/,'');
+  if(!base) return '';
+  return `${base}/storage/v1/object/public/templates/${file}`;
+}
+/* アップロード欄のすぐ下に置く1行リンク（どの画面でも同じ見た目・高さ） */
+function docGuideLink(style){
+  return `<div style="${style||'font-size:11px;margin-top:6px'}">
+    <a href="#" data-act="doc-guide" style="color:var(--accent,#4f46e5);text-decoration:none;font-weight:600">
+      📄 履歴書・職務経歴書の雛形と記入見本
+    </a>
+  </div>`;
+}
+function openDocGuide(backId){
+  // 進捗確認ページの編集モーダルから開いた場合は、入力中の内容を退避して戻れるようにする
+  _tkEditDraft = null;
+  if(backId){
+    const g=id=>((document.getElementById(id)||{}).value);
+    if(g('tkeName')!==undefined){
+      _tkEditDraft={ id:backId, name:g('tkeName'), kana:g('tkeKana'), phone:g('tkePhone'),
+                     email:g('tkeEmail'), area:g('tkeArea'), note:g('tkeNote') };
+    }
+  }
+  const rows=DOC_TEMPLATES.map(t=>{
+    const url=tplUrl(t.file);
+    const isSample=t.kind==='記入見本';
+    return `<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px">
+      <div style="width:34px;height:34px;border-radius:8px;background:${isSample?'var(--gray-bg)':'var(--accent-soft)'};color:${isSample?'var(--soft)':'var(--accent)'};display:grid;place-items:center;font-size:11px;font-weight:700">${isSample?'見本':'雛形'}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:700">${esc(t.label)}　<span style="font-weight:400;color:var(--soft);font-size:11.5px">${esc(t.kind)}</span></div>
+        <div class="cell-sub" style="font-size:11px">${esc(t.desc)}</div>
+      </div>
+      ${url
+        ? `<a class="btn ${isSample?'btn-ghost':'btn-primary'} btn-sm" href="${esc(url)}" target="_blank" rel="noopener" ${isSample?'':'download'} style="white-space:nowrap;text-decoration:none">${isSample?'見る':'ダウンロード'}</a>`
+        : `<span class="cell-sub" style="font-size:11px">準備中</span>`}
+    </div>`;
+  }).join('');
+  showModal(`
+    <div class="modal-title">履歴書・職務経歴書の雛形と記入見本</div>
+    <div class="modal-sub">雛形（Word）に記入してご提出ください。書き方に迷ったら記入見本をご覧ください。</div>
+    ${rows}
+    <div class="panel" style="padding:11px 13px;margin-top:10px;background:var(--gray-bg)">
+      <div style="font-size:12px;color:var(--soft);line-height:1.9">
+        <strong style="color:var(--ink)">提出時のポイント</strong><br>
+        ・空欄を作らず、該当がない項目は「特になし」と記入する<br>
+        ・学歴・職歴は<b>古い順</b>、職務経歴書の実績は<b>数字</b>を入れる<br>
+        ・在籍期間は「◯年◯月〜◯年◯月」まで正確に書く<br>
+        ・提出形式は Word・PDF・画像のいずれでも構いません（1ファイル25MBまで）
+      </div>
+    </div>
+    <div class="modal-actions">${
+      (_tkEditDraft && _tkEditDraft.id)
+        ? `<button class="btn btn-primary" data-act="doc-guide-back">編集にもどる</button>`
+        : `<button class="btn btn-primary" data-act="closemodal">閉じる</button>`
+    }</div>`);
+}
+let _tkEditDraft = null;   // 雛形モーダルを開く直前の入力内容（戻ったときに復元する）
 
 /* ── 希望エリア：都道府県（選択制）──────────────────────────────
    報酬計算(baseSalaryFor)は「東京」「大阪」等を includes で判定するため、
@@ -5236,6 +5307,8 @@ document.addEventListener('click', e=>{
     }
     case 'tracker-reload': refreshTracker(); break;
     case 'tk-edit': openTrackerEdit(t.dataset.id); break;
+    case 'doc-guide': e.preventDefault(); openDocGuide(t.dataset.back||''); break;
+    case 'doc-guide-back': { const d=_tkEditDraft; _tkEditDraft=null; if(d&&d.id) openTrackerEdit(d.id, d); else closeModal(); break; }
     case 'tk-edit-save': doTrackerEditSave(t.dataset.id); break;
     case 'tk-doc-del': doTrackerDelDoc(t.dataset.id, t.dataset.doc); break;
     case 'tracker-tab': _tkTab=t.dataset.tab; renderTrackerList(); break;
@@ -7963,6 +8036,7 @@ function renderIntakeForm(agId, partnerName, projList, fixedCompany){
               <div style="font-size:11px;color:var(--muted,#94a3b8);margin-top:3px">PDF・Word・画像（複数可）</div>
             </div>
             <div id="ikfFileList" style="margin-top:8px;display:flex;flex-direction:column;gap:5px"></div>
+            ${docGuideLink('font-size:11.5px;margin-top:8px')}
           </div>
           <div>
             <label style="display:block;font-size:12px;font-weight:600;color:var(--ink,#1f3f63);margin-bottom:5px">補足・備考</label>
@@ -9290,9 +9364,18 @@ function renderTrackerList(rows, company){
 }
 
 /* ───────── 進捗確認ページ：求職者情報の編集 ───────── */
-function openTrackerEdit(id){
+function openTrackerEdit(id, draft){
   const r=tkRow(id);
   if(!r){ toast('対象が見つかりません'); return; }
+  const d = (draft && draft.id===id) ? draft : null;   // 雛形モーダルから戻ったときは入力中の値を復元
+  const cur = {
+    name:  d ? d.name  : r.name,
+    kana:  d ? d.kana  : r.kana,
+    phone: d ? d.phone : r.phone,
+    email: d ? d.email : r.email,
+    area:  d ? d.area  : r.area,
+    note:  d ? d.note  : r.note
+  };
   const s=tkDocStat(r);
   const docChip=(ok,label,kindCode)=>`
     <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;margin-bottom:6px">
@@ -9311,18 +9394,23 @@ function openTrackerEdit(id){
   showModal(`
     <div class="modal-title">${esc(r.name)} さまの情報</div>
     <div class="modal-sub">${esc(tkStatusLabel(r))}${r.projectName?` ・ ${esc(r.projectName)}`:''}</div>
-    <div class="field full"><label>お名前 <span style="color:var(--r)">*</span></label><input id="tkeName" value="${esc(r.name)}"></div>
-    <div class="field full"><label>フリガナ</label><input id="tkeKana" value="${esc(r.kana)}"></div>
-    <div class="field full"><label>電話番号</label><input id="tkePhone" value="${esc(r.phone)}" placeholder="090-1234-5678"></div>
-    <div class="field full"><label>メールアドレス</label><input id="tkeEmail" value="${esc(r.email)}" placeholder="example@example.com"></div>
-    <div class="field full"><label>希望エリア</label><select id="tkeArea">${areaOptions(r.area)}</select></div>
-    <div class="field full"><label>備考</label><textarea id="tkeNote" rows="2">${esc(r.note)}</textarea></div>
+    <div class="field full"><label>お名前 <span style="color:var(--r)">*</span></label><input id="tkeName" value="${esc(cur.name)}"></div>
+    <div class="field full"><label>フリガナ</label><input id="tkeKana" value="${esc(cur.kana)}"></div>
+    <div class="field full"><label>電話番号</label><input id="tkePhone" value="${esc(cur.phone)}" placeholder="090-1234-5678"></div>
+    <div class="field full"><label>メールアドレス</label><input id="tkeEmail" value="${esc(cur.email)}" placeholder="example@example.com"></div>
+    <div class="field full"><label>希望エリア</label><select id="tkeArea">${areaOptions(cur.area)}</select></div>
+    <div class="field full"><label>備考</label><textarea id="tkeNote" rows="2">${esc(cur.note)}</textarea></div>
 
     <div class="field full" style="margin-top:6px">
       <label>書類</label>
       ${docChip(s.rireki,'履歴書','rireki')}
       ${docChip(s.shoku,'職務経歴書','shoku')}
       ${files?`<div style="margin-top:6px">${files}</div>`:'<div class="cell-sub" style="font-size:11px">まだ書類が提出されていません。</div>'}
+      <div style="font-size:11.5px;margin-top:8px">
+        <a href="#" data-act="doc-guide" data-back="${esc(r.id)}" style="color:var(--accent,#4f46e5);text-decoration:none;font-weight:600">
+          📄 履歴書・職務経歴書の雛形と記入見本
+        </a>
+      </div>
       <div class="cell-sub" style="font-size:11px;margin-top:5px">PDF / Word / Excel / 画像（1ファイル25MBまで）</div>
     </div>
 
