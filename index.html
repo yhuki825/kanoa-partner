@@ -7752,12 +7752,12 @@ function renderIntakeForm(agId, partnerName, projList, fixedCompany){
         <div style="display:flex;flex-direction:column;gap:13px">
           ${fixedCompany
             ? `<div class="ikf-field">
-                 <label class="ikf-label">御社名（貴社名）</label>
+                 <label class="ikf-label">貴社名</label>
                  <div style="padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--gray-bg);font-size:13.5px;font-weight:600">${esc(fixedCompany)}</div>
                  <input type="hidden" id="ikfCompany" value="${esc(fixedCompany)}">
                  <div style="font-size:11px;color:var(--soft);margin-top:4px">このフォーム専用のリンクから自動で設定されています。</div>
                </div>`
-            : ikField('御社名（貴社名）', 'ikfCompany', 'text', '株式会社◯◯', true)}
+            : ikField('貴社名', 'ikfCompany', 'text', '株式会社◯◯', true)}
           ${(projList&&projList.length)?`<div>
             <label style="display:block;font-size:12px;font-weight:600;color:var(--ink,#1f3f63);margin-bottom:5px">紹介する案件 <span style="color:#BE123C">*</span></label>
             <select id="ikfProject" style="width:100%;padding:10px 12px;border:1px solid var(--line,#e2e8f0);border-radius:9px;font-size:14px;box-sizing:border-box;background:#fff">
