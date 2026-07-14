@@ -1079,9 +1079,9 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     }catch(e){ return {message:(e&&e.message)||'保存に失敗しました'}; }
   }
   /* ── 二次パートナー向け「閲覧リンク」──────────────────────────────
-     合言葉の照合とデータ取得はすべてサーバー側(RPC)で行う。
-     ブラウザには「正しい合言葉を送った場合の結果」しか返らないため、
-     リンクが流出しても合言葉が無ければ情報は見えない。                       */
+     パスワードの照合とデータ取得はすべてサーバー側(RPC)で行う。
+     ブラウザには「正しいパスワードを送った場合の結果」しか返らないため、
+     リンクが流出してもパスワードが無ければ情報は見えない。                       */
   async function trackerIssue(company, pw, days){
     if(!sb) return {error:'未接続'};
     const { data, error } = await sb.rpc('tracker_issue', {p_company:company, p_pw:pw, p_days:(days==null?90:days)});
@@ -5053,7 +5053,7 @@ document.addEventListener('click', e=>{
     case 'tracker-open': openTracker(t.dataset.token); break;
     case 'tracker-issue-do': doIssueTrackerLink(t.dataset.company); break;
     case 'tracker-copy': {
-      const txt='【進捗確認ページ】\n'+t.dataset.url+'\n\n【合言葉】\n'+t.dataset.pw;
+      const txt='【進捗確認ページ】\n'+t.dataset.url+'\n\n【パスワード】\n'+t.dataset.pw;
       navigator.clipboard.writeText(txt).then(()=>toast('コピーしました')).catch(()=>toast('コピーに失敗しました'));
       break;
     }
@@ -8280,9 +8280,9 @@ async function issueTrackerLink(company){
   const pw=(typeof genPw==='function')? genPw() : ('kanoa'+Math.random().toString(36).slice(2,8));
   showModal(`
     <div class="modal-title">${esc(norm)} さまへの進捗確認リンク</div>
-    <div class="modal-sub">リンクと合言葉をお相手にお伝えください。ログイン不要で、<b>その会社がご紹介した方の進捗のみ</b>を閲覧できます（閲覧専用）。</div>
+    <div class="modal-sub">リンクとパスワードをお相手にお伝えください。ログイン不要で、<b>その会社がご紹介した方の進捗のみ</b>を閲覧できます（閲覧専用）。</div>
     <div class="field full">
-      <label>合言葉（お相手に伝えます）</label>
+      <label>パスワード（お相手に伝えます）</label>
       <input id="tkNewPw" value="${esc(pw)}">
     </div>
     <div class="field full">
@@ -8307,7 +8307,7 @@ async function doIssueTrackerLink(company){
   const btn=document.getElementById('tkIssueBtn');
   const pw=(document.getElementById('tkNewPw')||{}).value||'';
   const days=parseInt((document.getElementById('tkDays')||{}).value||'90',10);
-  if(pw.trim().length<4){ if(errEl) errEl.textContent='合言葉は4文字以上にしてください'; return; }
+  if(pw.trim().length<4){ if(errEl) errEl.textContent='パスワードは4文字以上にしてください'; return; }
   if(btn){ btn.disabled=true; btn.textContent='発行中…'; }
   const res=await SUPA.trackerIssue(company, pw.trim(), days);
   if(btn){ btn.disabled=false; btn.textContent='リンクを発行'; }
@@ -8318,9 +8318,9 @@ async function doIssueTrackerLink(company){
     <div class="info-card" style="margin-top:10px">
       <div style="font-size:12px;font-weight:700;color:var(--g);margin-bottom:8px">発行しました。以下をお相手にお伝えください。</div>
       <div class="info-row"><span class="info-label">リンク</span><span class="info-val mono" style="font-size:11px">${esc(url)}</span><button class="copy-btn" data-act="copy" data-v="${esc(url)}">コピー</button></div>
-      <div class="info-row"><span class="info-label">合言葉</span><span class="info-val mono">${esc(pw.trim())}</span><button class="copy-btn" data-act="copy" data-v="${esc(pw.trim())}">コピー</button></div>
+      <div class="info-row"><span class="info-label">パスワード</span><span class="info-val mono">${esc(pw.trim())}</span><button class="copy-btn" data-act="copy" data-v="${esc(pw.trim())}">コピー</button></div>
       <div style="margin-top:10px"><button class="btn btn-primary btn-sm" data-act="tracker-copy" data-url="${esc(url)}" data-pw="${esc(pw.trim())}">まとめてコピー</button></div>
-      <div class="cell-sub" style="font-size:11px;margin-top:8px">合言葉は安全のため保存されません。この画面を閉じる前にお控えください。</div>
+      <div class="cell-sub" style="font-size:11px;margin-top:8px">パスワードは安全のため保存されません。この画面を閉じる前にお控えください。</div>
     </div>`;
   if(errEl) errEl.textContent='';
 }
@@ -8644,8 +8644,8 @@ function crossDupBadge(r){
 
 
 /* ════════════════════ 二次パートナー向け 進捗確認ページ（?track=xxx） ════════════════════
-   ログイン不要。リンク＋合言葉のみ。閲覧専用（書類提出・編集はできない）。
-   合言葉の照合と絞り込みはサーバー(RPC)側で行うため、合言葉なしでは情報が一切返らない。 */
+   ログイン不要。リンク＋パスワードのみ。閲覧専用（書類提出・編集はできない）。
+   パスワードの照合と絞り込みはサーバー(RPC)側で行うため、パスワードなしでは情報が一切返らない。 */
 function renderTrackerGate(token){
   hideBootSplash();
   const wrap=document.getElementById('loginWrap'); if(wrap) wrap.style.display='none';
@@ -8660,8 +8660,8 @@ function renderTrackerGate(token){
         <div style="font-size:13px;color:var(--soft);margin-top:4px">ご紹介いただいた方の進捗確認</div>
       </div>
       <div class="panel" style="padding:22px">
-        <div style="font-size:13px;color:var(--soft);margin-bottom:14px">担当者よりお伝えした<b>合言葉</b>を入力してください。</div>
-        <input id="tkPw" type="password" placeholder="合言葉" autocomplete="off"
+        <div style="font-size:13px;color:var(--soft);margin-bottom:14px">担当者よりお伝えした<b>パスワード</b>を入力してください。</div>
+        <input id="tkPw" type="password" placeholder="パスワード" autocomplete="off"
           style="width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:9px;font-size:14px;box-sizing:border-box">
         <div id="tkErr" style="color:var(--r);font-size:12px;margin-top:8px;min-height:16px"></div>
         <button id="tkBtn" class="btn btn-primary" style="width:100%;margin-top:6px" data-act="tracker-open" data-token="${esc(token)}">進捗を表示する</button>
@@ -8679,13 +8679,13 @@ async function openTracker(token){
   const errEl=document.getElementById('tkErr');
   const btn=document.getElementById('tkBtn');
   const pw=(document.getElementById('tkPw')||{}).value||'';
-  if(!pw){ if(errEl) errEl.textContent='合言葉を入力してください'; return; }
+  if(!pw){ if(errEl) errEl.textContent='パスワードを入力してください'; return; }
   if(btn){ btn.disabled=true; btn.textContent='確認中…'; }
   const res=await SUPA.trackerView(token, pw);
   if(btn){ btn.disabled=false; btn.textContent='進捗を表示する'; }
   if(res.error){
     if(errEl) errEl.textContent =
-      res.error==='BAD_PW'   ? '合言葉が違います' :
+      res.error==='BAD_PW'   ? 'パスワードが違います' :
       res.error==='BAD_LINK' ? 'このリンクは無効か、有効期限が切れています' :
       '表示できませんでした（' + res.error + '）';
     return;
