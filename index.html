@@ -1110,6 +1110,21 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     if(error || !data || !data.length) return null;
     return { agencyId:data[0].agency_id, company:data[0].company };
   }
+  /* 既に発行済みのリンクを取得（毎回新規発行しないため）。無ければ null */
+  async function trackerGet(company){
+    if(!sb) return null;
+    const { data, error } = await sb.rpc('tracker_get', {p_company:company});
+    if(error || !data) return null;
+    const d=(typeof data==='string')?(()=>{try{return JSON.parse(data);}catch(e){return null;}})():data;
+    return d ? {token:d.token, formToken:d.form_token, expiresAt:d.expires_at} : null;
+  }
+  /* 既存リンクのパスワードだけを変更する */
+  async function trackerSetPw(company, pw){
+    if(!sb) return {error:'未接続'};
+    const { data, error } = await sb.rpc('tracker_setpw', {p_company:company, p_pw:pw});
+    if(error) return {error:error.message};
+    return {ok:!!data};
+  }
   async function trackerInfo(token, pw){
     await ensureClient();
     const { data, error } = await sb.rpc('tracker_info', {p_token:token, p_pw:pw});
@@ -1312,7 +1327,7 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     if(!sb) return;
     try{ await sb.from('login_logs').insert({agency_id:agId,success:!!success,method:method||'パスワード'}); }catch(e){ console.warn('login_log insert failed',e); }
   }
-  return { boot, ensureClient, signInPassword, signInOtp, signOut, resetPassword, updatePassword, partnerLogin, loginThen, loadAll, loadMessages, scheduleSync, syncNow, isBusy, delRow, insertReferral, trackerIssue, trackerView, trackerInfo, formPartnerInfo, trackerList, trackerRevoke, uploadDoc, docUrl, removeDoc, insertLoginLog, subscribeRealtime, unsubscribeRealtime, setRealtimeAuth, forceReconnectRealtime };
+  return { boot, ensureClient, signInPassword, signInOtp, signOut, resetPassword, updatePassword, partnerLogin, loginThen, loadAll, loadMessages, scheduleSync, syncNow, isBusy, delRow, insertReferral, trackerIssue, trackerGet, trackerSetPw, trackerView, trackerInfo, formPartnerInfo, trackerList, trackerRevoke, uploadDoc, docUrl, removeDoc, insertLoginLog, subscribeRealtime, unsubscribeRealtime, setRealtimeAuth, forceReconnectRealtime };
 })();
 
 const LS_KEY = 'kanoa_relay_v22';
@@ -5062,6 +5077,7 @@ document.addEventListener('click', e=>{
     case 'issue-subacc': issueTrackerLink(t.dataset.company); break;
     case 'tracker-open': openTracker(t.dataset.token); break;
     case 'tracker-issue-do': doIssueTrackerLink(t.dataset.company); break;
+    case 'tracker-setpw': doSetTrackerPw(t.dataset.company); break;
     case 'tracker-copy': {
       const parts=[];
       if(t.dataset.form) parts.push('【求職者ご紹介フォーム】\n'+t.dataset.form);
@@ -5069,7 +5085,7 @@ document.addEventListener('click', e=>{
       navigator.clipboard.writeText(parts.join('\n\n')).then(()=>toast('コピーしました')).catch(()=>toast('コピーに失敗しました'));
       break;
     }
-    case 'tracker-reload': location.reload(); break;
+    case 'tracker-reload': refreshTracker(); break;
     case 'tracker-tab': _tkTab=t.dataset.tab; renderTrackerList(); break;
     case 'myref-tab': myRefTab=t.dataset.tab; render(); break;
     case 'save-subacc-email': { const acc=(DB.subaccounts||[]).find(x=>x.id===t.dataset.id); if(acc){ acc.email=(document.getElementById('subAccEmail').value||'').trim(); save(); toast('保存しました'); closeModal(); } break; }
@@ -8312,21 +8328,53 @@ async function issueTrackerLink(company){
   const norm=(company||'').trim();
   if(!norm){ toast('会社名がありません'); return; }
   if(DEMO_MODE){ toast('デモモードでは発行できません'); return; }
+
+  // 既に発行済みなら、そのリンクを再利用する（毎回変わってしまうのを防ぐ）
+  const existing = await SUPA.trackerGet(norm);
+  const base=location.origin+location.pathname;
+
+  if(existing && existing.token){
+    const url=base+'?track='+existing.token;
+    const formUrl=existing.formToken ? (base+'?form='+encodeURIComponent(S.agencyId)+'&sub='+existing.formToken) : '';
+    showModal(`
+      <div class="modal-title">${esc(norm)} さまのリンク</div>
+      <div class="modal-sub">発行済みのリンクです。<b>URLは変わりません</b>ので、そのままお使いいただけます。</div>
+      <div class="info-card" style="margin-top:6px">
+        ${formUrl?`<div class="info-row"><span class="info-label">紹介フォーム</span><span class="info-val mono" style="font-size:11px">${esc(formUrl)}</span><button class="copy-btn" data-act="copy" data-v="${esc(formUrl)}">コピー</button></div>`:''}
+        <div class="info-row"><span class="info-label">進捗確認</span><span class="info-val mono" style="font-size:11px">${esc(url)}</span><button class="copy-btn" data-act="copy" data-v="${esc(url)}">コピー</button></div>
+        <div class="info-row"><span class="info-label">パスワード</span><span class="info-val" style="color:var(--soft)">設定済み（表示できません）</span></div>
+        <div style="margin-top:10px"><button class="btn btn-primary btn-sm" data-act="tracker-copy" data-form="${esc(formUrl)}" data-url="${esc(url)}" data-pw="（お伝え済みのパスワード）">リンクをまとめてコピー</button></div>
+      </div>
+      <div class="field full" style="margin-top:14px">
+        <label>パスワードを変更する場合のみ入力</label>
+        <input id="tkNewPw" placeholder="新しいパスワード（4文字以上）">
+        <div class="cell-sub" style="font-size:11px;margin-top:3px">変更するとURLはそのままで、パスワードだけが新しくなります。</div>
+      </div>
+      <div id="tkIssueErr" style="color:var(--r);font-size:12px;min-height:16px"></div>
+      <div id="tkIssueOut"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-act="closemodal">閉じる</button>
+        <button class="btn btn-primary" id="tkPwBtn" data-act="tracker-setpw" data-company="${esc(norm)}">パスワードを変更</button>
+      </div>`);
+    return;
+  }
+
+  // 未発行 → 新規発行
   const pw=(typeof genPw==='function')? genPw() : ('kanoa'+Math.random().toString(36).slice(2,8));
   showModal(`
-    <div class="modal-title">${esc(norm)} さまへの進捗確認リンク</div>
-    <div class="modal-sub">リンクとパスワードをお相手にお伝えください。ログイン不要で、<b>その会社がご紹介した方の進捗のみ</b>を閲覧できます（閲覧専用）。</div>
+    <div class="modal-title">${esc(norm)} さまへのリンクを発行</div>
+    <div class="modal-sub">発行すると、<b>その会社専用の「紹介フォーム」と「進捗確認ページ」</b>が作られます。フォームは貴社名が自動で入るため、表記のゆれが起きません。</div>
     <div class="field full">
-      <label>パスワード（お相手に伝えます）</label>
+      <label>パスワード（進捗確認ページ用）</label>
       <input id="tkNewPw" value="${esc(pw)}">
     </div>
     <div class="field full">
       <label>有効期限</label>
       <select id="tkDays">
-        <option value="90">90日</option>
-        <option value="180">180日</option>
-        <option value="365">1年</option>
         <option value="0">無期限</option>
+        <option value="365">1年</option>
+        <option value="180">180日</option>
+        <option value="90">90日</option>
       </select>
     </div>
     <div id="tkIssueErr" style="color:var(--r);font-size:12px;min-height:16px"></div>
@@ -8335,6 +8383,25 @@ async function issueTrackerLink(company){
       <button class="btn btn-ghost" data-act="closemodal">閉じる</button>
       <button class="btn btn-primary" id="tkIssueBtn" data-act="tracker-issue-do" data-company="${esc(norm)}">リンクを発行</button>
     </div>`);
+}
+
+/* 既存リンクのパスワードだけ変更（URLは変わらない） */
+async function doSetTrackerPw(company){
+  const errEl=document.getElementById('tkIssueErr');
+  const btn=document.getElementById('tkPwBtn');
+  const pw=(document.getElementById('tkNewPw')||{}).value||'';
+  if(pw.trim().length<4){ if(errEl) errEl.textContent='パスワードは4文字以上にしてください'; return; }
+  if(btn){ btn.disabled=true; btn.textContent='変更中…'; }
+  const res=await SUPA.trackerSetPw(company, pw.trim());
+  if(btn){ btn.disabled=false; btn.textContent='パスワードを変更'; }
+  if(res.error){ if(errEl) errEl.textContent='変更に失敗しました：'+res.error; return; }
+  if(errEl) errEl.textContent='';
+  const out=document.getElementById('tkIssueOut');
+  if(out) out.innerHTML=`<div class="info-card" style="margin-top:8px">
+    <div style="font-size:12px;font-weight:700;color:var(--g);margin-bottom:6px">パスワードを変更しました</div>
+    <div class="info-row"><span class="info-label">新しいパスワード</span><span class="info-val mono">${esc(pw.trim())}</span><button class="copy-btn" data-act="copy" data-v="${esc(pw.trim())}">コピー</button></div>
+    <div class="cell-sub" style="font-size:11px;margin-top:6px">お相手にお伝えください。URLは変わっていません。</div>
+  </div>`;
 }
 
 async function doIssueTrackerLink(company){
@@ -8713,6 +8780,7 @@ function renderTrackerGate(token){
   if(pw) pw.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); openTracker(token); } });
 }
 
+let _tkToken='', _tkPw='';   // 進捗ページのセッション（この画面を開いている間だけ保持）
 async function openTracker(token){
   const errEl=document.getElementById('tkErr');
   const btn=document.getElementById('tkBtn');
@@ -8728,6 +8796,7 @@ async function openTracker(token){
       '表示できませんでした（' + res.error + '）';
     return;
   }
+  _tkToken=token; _tkPw=pw;   // 「最新に更新」でパスワード再入力を求めないため保持
   const rows=res.rows||[];
   // 会社名：進捗データから取得。0件のときは専用RPCで取得する
   let company = (rows[0] && rows[0].company) || '';
@@ -8736,6 +8805,22 @@ async function openTracker(token){
 }
 
 let _tkRows=[]; let _tkTab='all'; let _tkCompany='';
+/* 「最新に更新」：ページを再読込せず（＝パスワード再入力を求めず）データだけ取り直す */
+async function refreshTracker(){
+  if(!_tkToken || !_tkPw){ return; }
+  const btn=document.querySelector('[data-act="tracker-reload"]');
+  if(btn){ btn.disabled=true; btn.textContent='更新中…'; }
+  const res=await SUPA.trackerView(_tkToken, _tkPw);
+  if(btn){ btn.disabled=false; btn.textContent='最新に更新'; }
+  if(res.error){
+    if(res.error==='BAD_PW' || res.error==='BAD_LINK'){ _tkToken=''; _tkPw=''; renderTrackerGate(_tkToken||new URLSearchParams(location.search).get('track')||''); return; }
+    toast('更新できませんでした'); return;
+  }
+  const rows=res.rows||[];
+  const company=(rows[0] && rows[0].company) || _tkCompany || '';
+  renderTrackerList(rows, company);
+  toast('最新の情報に更新しました');
+}
 function renderTrackerList(rows, company){
   if(rows) _tkRows=rows;
   if(company!==undefined && company!==null && company!=='') _tkCompany=company;
