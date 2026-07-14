@@ -1086,7 +1086,9 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     if(!sb) return {error:'未接続'};
     const { data, error } = await sb.rpc('tracker_issue', {p_company:company, p_pw:pw, p_days:(days==null?90:days)});
     if(error) return {error:error.message};
-    return {token:data};
+    // data は { token, form_token }（旧仕様の文字列にも一応対応）
+    const d = (typeof data==='string') ? (()=>{ try{ return JSON.parse(data); }catch(e){ return {token:data}; } })() : (data||{});
+    return { token:d.token, formToken:d.form_token };
   }
   async function trackerView(token, pw){
     await ensureClient();
@@ -1100,6 +1102,14 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     return {rows:data||[]};
   }
   /* 紹介者が0人でも会社名を表示できるよう、会社名だけを取得する */
+  /* フォーム用トークン(?sub=)から「どの一次パートナーの、どの二次パートナーか」を引く。
+     未ログインでも使える。これにより貴社名の入力が不要になり、表記ゆれが原理的に起きない。 */
+  async function formPartnerInfo(formToken){
+    await ensureClient();
+    const { data, error } = await sb.rpc('form_partner_info', {p_form_token:formToken});
+    if(error || !data || !data.length) return null;
+    return { agencyId:data[0].agency_id, company:data[0].company };
+  }
   async function trackerInfo(token, pw){
     await ensureClient();
     const { data, error } = await sb.rpc('tracker_info', {p_token:token, p_pw:pw});
@@ -1302,7 +1312,7 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     if(!sb) return;
     try{ await sb.from('login_logs').insert({agency_id:agId,success:!!success,method:method||'パスワード'}); }catch(e){ console.warn('login_log insert failed',e); }
   }
-  return { boot, ensureClient, signInPassword, signInOtp, signOut, resetPassword, updatePassword, partnerLogin, loginThen, loadAll, loadMessages, scheduleSync, syncNow, isBusy, delRow, insertReferral, trackerIssue, trackerView, trackerInfo, trackerList, trackerRevoke, uploadDoc, docUrl, removeDoc, insertLoginLog, subscribeRealtime, unsubscribeRealtime, setRealtimeAuth, forceReconnectRealtime };
+  return { boot, ensureClient, signInPassword, signInOtp, signOut, resetPassword, updatePassword, partnerLogin, loginThen, loadAll, loadMessages, scheduleSync, syncNow, isBusy, delRow, insertReferral, trackerIssue, trackerView, trackerInfo, formPartnerInfo, trackerList, trackerRevoke, uploadDoc, docUrl, removeDoc, insertLoginLog, subscribeRealtime, unsubscribeRealtime, setRealtimeAuth, forceReconnectRealtime };
 })();
 
 const LS_KEY = 'kanoa_relay_v22';
@@ -1996,7 +2006,7 @@ const LI_ARROW='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strok
 function CHECK_INVITE_THEN_LOGIN(){
   let p=null; try{ p=new URLSearchParams(location.search); }catch(e){}
   const formAg=p&&p.get('form');
-  if(formAg){ const formPj=p&&p.get('pj'); handleFormUrl(formAg, formPj); return; }   // パートナー向け応募フォーム
+  if(formAg){ const formPj=p&&p.get('pj'); const subTok=p&&p.get('sub'); handleFormUrl(formAg, formPj, subTok); return; }   // パートナー向け応募フォーム
   const agId=p&&p.get('invite'), token=p&&p.get('token');
   if(agId && token){ handleInviteUrl(agId, token); return; }
   renderLogin();
@@ -5053,8 +5063,10 @@ document.addEventListener('click', e=>{
     case 'tracker-open': openTracker(t.dataset.token); break;
     case 'tracker-issue-do': doIssueTrackerLink(t.dataset.company); break;
     case 'tracker-copy': {
-      const txt='【進捗確認ページ】\n'+t.dataset.url+'\n\n【パスワード】\n'+t.dataset.pw;
-      navigator.clipboard.writeText(txt).then(()=>toast('コピーしました')).catch(()=>toast('コピーに失敗しました'));
+      const parts=[];
+      if(t.dataset.form) parts.push('【求職者ご紹介フォーム】\n'+t.dataset.form);
+      parts.push('【進捗確認ページ】\n'+t.dataset.url+'\n\n【進捗確認のパスワード】\n'+t.dataset.pw);
+      navigator.clipboard.writeText(parts.join('\n\n')).then(()=>toast('コピーしました')).catch(()=>toast('コピーに失敗しました'));
       break;
     }
     case 'tracker-reload': location.reload(); break;
@@ -7687,7 +7699,7 @@ function showIntakeFormInfo(){
    ════════════════════════════════════════════════════════════ */
 
 /* 起動時：?form= があればフォーム画面を出す（招待リンクより先に判定される） */
-async function handleFormUrl(agId, pjParam){
+async function handleFormUrl(agId, pjParam, subToken){
   inviteScreen(`<div style="font-family:var(--display);font-weight:800;font-size:18px;margin-bottom:8px">読み込み中…</div>
     <div style="font-size:13px;color:var(--soft)">応募フォームを準備しています。</div>`);
   // パートナー名を取得（本番はSupabaseから直接。無ければIDのまま）
@@ -7709,10 +7721,26 @@ async function handleFormUrl(agId, pjParam){
       if(pjIds.length){ projList=(DB.projects||[]).filter(p=>pjIds.includes(p.id)).map(p=>({id:p.id,name:p.name})); }
     }
   }catch(e){}
-  renderIntakeForm(agId, name, projList);
+  // ?sub= があれば、二次パートナーの会社名をサーバーから確定する（自由入力させない＝表記ゆれ防止）
+  let fixedCompany=null;
+  if(subToken && !DEMO_MODE){
+    try{
+      const info=await SUPA.formPartnerInfo(subToken);
+      if(info && info.company){
+        fixedCompany=info.company;
+        if(info.agencyId) agId=info.agencyId;   // 念のためトークン側の所属を優先
+      }
+    }catch(e){}
+    if(!fixedCompany){
+      inviteScreen(`<div style="font-family:var(--display);font-weight:800;font-size:18px;margin-bottom:8px">リンクが無効です</div>
+        <div style="font-size:13px;color:var(--soft)">このフォームのリンクは無効か、有効期限が切れています。<br>お手数ですが、ご担当者さまへご確認ください。</div>`);
+      return;
+    }
+  }
+  renderIntakeForm(agId, name, projList, fixedCompany);
 }
 
-function renderIntakeForm(agId, partnerName, projList){
+function renderIntakeForm(agId, partnerName, projList, fixedCompany){
   const el=document.getElementById('app')||document.body;
   el.style.display='block';
   el.innerHTML=`<div style="min-height:100vh;background:var(--bg,#0b1220);padding:20px;display:flex;align-items:flex-start;justify-content:center">
@@ -7722,7 +7750,14 @@ function renderIntakeForm(agId, partnerName, projList){
         <div style="font-size:12.5px;color:var(--soft,#64748b);margin-bottom:20px">${esc(partnerName)} 宛に、ご紹介する求職者の情報をご入力ください。</div>
         <div id="ikfError" style="color:#BE123C;font-size:12.5px;margin-bottom:10px;min-height:0"></div>
         <div style="display:flex;flex-direction:column;gap:13px">
-          ${ikField('御社名（貴社名）', 'ikfCompany', 'text', '株式会社◯◯', true)}
+          ${fixedCompany
+            ? `<div class="ikf-field">
+                 <label class="ikf-label">御社名（貴社名）</label>
+                 <div style="padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--gray-bg);font-size:13.5px;font-weight:600">${esc(fixedCompany)}</div>
+                 <input type="hidden" id="ikfCompany" value="${esc(fixedCompany)}">
+                 <div style="font-size:11px;color:var(--soft);margin-top:4px">このフォーム専用のリンクから自動で設定されています。</div>
+               </div>`
+            : ikField('御社名（貴社名）', 'ikfCompany', 'text', '株式会社◯◯', true)}
           ${(projList&&projList.length)?`<div>
             <label style="display:block;font-size:12px;font-weight:600;color:var(--ink,#1f3f63);margin-bottom:5px">紹介する案件 <span style="color:#BE123C">*</span></label>
             <select id="ikfProject" style="width:100%;padding:10px 12px;border:1px solid var(--line,#e2e8f0);border-radius:9px;font-size:14px;box-sizing:border-box;background:#fff">
@@ -8312,15 +8347,18 @@ async function doIssueTrackerLink(company){
   const res=await SUPA.trackerIssue(company, pw.trim(), days);
   if(btn){ btn.disabled=false; btn.textContent='リンクを発行'; }
   if(res.error){ if(errEl) errEl.textContent='発行に失敗しました：'+res.error; return; }
-  const url=location.origin+location.pathname+'?track='+res.token;
+  const base=location.origin+location.pathname;
+  const url=base+'?track='+res.token;
+  const formUrl=res.formToken ? (base+'?form='+encodeURIComponent(S.agencyId)+'&sub='+res.formToken) : '';
   const out=document.getElementById('tkIssueOut');
   if(out) out.innerHTML=`
     <div class="info-card" style="margin-top:10px">
       <div style="font-size:12px;font-weight:700;color:var(--g);margin-bottom:8px">発行しました。以下をお相手にお伝えください。</div>
-      <div class="info-row"><span class="info-label">リンク</span><span class="info-val mono" style="font-size:11px">${esc(url)}</span><button class="copy-btn" data-act="copy" data-v="${esc(url)}">コピー</button></div>
+      ${formUrl?`<div class="info-row"><span class="info-label">紹介フォーム</span><span class="info-val mono" style="font-size:11px">${esc(formUrl)}</span><button class="copy-btn" data-act="copy" data-v="${esc(formUrl)}">コピー</button></div>`:''}
+      <div class="info-row"><span class="info-label">進捗確認</span><span class="info-val mono" style="font-size:11px">${esc(url)}</span><button class="copy-btn" data-act="copy" data-v="${esc(url)}">コピー</button></div>
       <div class="info-row"><span class="info-label">パスワード</span><span class="info-val mono">${esc(pw.trim())}</span><button class="copy-btn" data-act="copy" data-v="${esc(pw.trim())}">コピー</button></div>
-      <div style="margin-top:10px"><button class="btn btn-primary btn-sm" data-act="tracker-copy" data-url="${esc(url)}" data-pw="${esc(pw.trim())}">まとめてコピー</button></div>
-      <div class="cell-sub" style="font-size:11px;margin-top:8px">パスワードは安全のため保存されません。この画面を閉じる前にお控えください。</div>
+      <div style="margin-top:10px"><button class="btn btn-primary btn-sm" data-act="tracker-copy" data-form="${esc(formUrl)}" data-url="${esc(url)}" data-pw="${esc(pw.trim())}">まとめてコピー</button></div>
+      <div class="cell-sub" style="font-size:11px;margin-top:8px">紹介フォームは貴社名が自動で入るため、お相手は入力不要です。パスワードは進捗確認ページ用で、安全のため保存されません。</div>
     </div>`;
   if(errEl) errEl.textContent='';
 }
