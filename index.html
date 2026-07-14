@@ -1124,7 +1124,38 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     if(!sb) return [];
     const { data, error } = await sb.rpc('subpartner_list');
     if(error || !data) return [];
-    return data.map(r=>({company:r.company, formToken:r.form_token, token:r.token}));
+    return data.map(r=>({
+      company:r.company, formToken:r.form_token, token:r.token,
+      contact:r.contact||'', email:r.email||'', phone:r.phone||'', note:r.note||''
+    }));
+  }
+  /* 二次パートナーの情報を更新する。
+     会社名は referrals.source_company / intake.company の突き合わせキーになっているため、
+     社名変更（リネーム）は必ずサーバー側(RPC)で履歴ごと一括更新する。
+     ここでフロントだけ書き換えると、過去の送客が一覧から消えてしまう。
+     patch: {company, contact, email, phone, note}（渡さなかった項目は変更しない） */
+  async function subpartnerUpdate(company, patch){
+    if(!sb) return {error:'未接続'};
+    const p = patch||{};
+    const arg = (v)=> (v===undefined || v===null) ? null : String(v);
+    const { data, error } = await sb.rpc('subpartner_update', {
+      p_company:     company,
+      p_new_company: (p.company==null || String(p.company).trim()==='') ? null : String(p.company).trim(),
+      p_contact:     arg(p.contact),
+      p_email:       arg(p.email),
+      p_phone:       arg(p.phone),
+      p_note:        arg(p.note)
+    });
+    if(error){
+      const m=(error.message||'');
+      if(/DUPLICATE_COMPANY/.test(m)) return {error:'同じ会社名の二次パートナーが既に登録されています'};
+      if(/NOT_FOUND/.test(m))         return {error:'対象の二次パートナーが見つかりません'};
+      if(/NOT_A_PARTNER/.test(m))     return {error:'この操作の権限がありません'};
+      if(/EMPTY_NAME/.test(m))        return {error:'会社名を入力してください'};
+      return {error:m||'更新に失敗しました'};
+    }
+    const d=(typeof data==='string')?(()=>{try{return JSON.parse(data);}catch(e){return {};}})():(data||{});
+    return { ok:true, company:d.company||company, renamed:!!d.renamed, moved:(d.moved|0), movedIntake:(d.moved_intake|0) };
   }
   async function trackerGet(company){
     if(!sb) return null;
@@ -1342,7 +1373,7 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     if(!sb) return;
     try{ await sb.from('login_logs').insert({agency_id:agId,success:!!success,method:method||'パスワード'}); }catch(e){ console.warn('login_log insert failed',e); }
   }
-  return { boot, ensureClient, signInPassword, signInOtp, signOut, resetPassword, updatePassword, partnerLogin, loginThen, loadAll, loadMessages, scheduleSync, syncNow, isBusy, delRow, insertReferral, subpartnerRegister, subpartnerList, trackerIssue, trackerGet, trackerSetPw, trackerView, trackerInfo, formPartnerInfo, trackerList, trackerRevoke, uploadDoc, docUrl, removeDoc, insertLoginLog, subscribeRealtime, unsubscribeRealtime, setRealtimeAuth, forceReconnectRealtime };
+  return { boot, ensureClient, signInPassword, signInOtp, signOut, resetPassword, updatePassword, partnerLogin, loginThen, loadAll, loadMessages, scheduleSync, syncNow, isBusy, delRow, insertReferral, subpartnerRegister, subpartnerList, subpartnerUpdate, trackerIssue, trackerGet, trackerSetPw, trackerView, trackerInfo, formPartnerInfo, trackerList, trackerRevoke, uploadDoc, docUrl, removeDoc, insertLoginLog, subscribeRealtime, unsubscribeRealtime, setRealtimeAuth, forceReconnectRealtime };
 })();
 
 const LS_KEY = 'kanoa_relay_v22';
@@ -5085,6 +5116,8 @@ document.addEventListener('click', e=>{
     case 'form-share': _formShareProjs=null; _formShareSub=''; openFormShare(); break;
     case 'subpartner-add': openSubPartnerAdd(); break;
     case 'subpartner-add-do': doSubPartnerAdd(); break;
+    case 'subpartner-edit': openSubPartnerEdit(t.dataset.company); break;
+    case 'subpartner-edit-do': doSubPartnerEditSave(t.dataset.company); break;
     case 'fshare-sub': _formShareSub=t.value||''; renderFormShareModal(); break;
     case 'fshare-toggle': { const pj=t.dataset.pj; if(!_formShareProjs) _formShareProjs=new Set(); if(_formShareProjs.has(pj)) _formShareProjs.delete(pj); else _formShareProjs.add(pj); renderFormShareModal(); break; }
     case 'toggle-subpartner': { const k=t.dataset.key; _openSubPartner = (_openSubPartner===k)?null:k; render(); break; }
@@ -7965,10 +7998,14 @@ function openSubPartnerAdd(){
     <div class="modal-title">二次パートナーを登録</div>
     <div class="modal-sub">登録した会社は、<b>紹介フォームの発行時に選べる</b>ようになります。会社名はここで登録したものが使われるため、表記のゆれが起きません。</div>
     <div class="field full">
-      <label>会社名</label>
+      <label>会社名 <span style="color:var(--r)">*</span></label>
       <input id="spNewName" placeholder="株式会社◯◯" autocomplete="off">
-      <div class="cell-sub" style="font-size:11px;margin-top:3px">正式名称で登録してください（後から変更はできません）。</div>
+      <div class="cell-sub" style="font-size:11px;margin-top:3px">正式名称で登録してください（登録後も編集できます）。</div>
     </div>
+    <div class="field full"><label>担当者名（任意）</label><input id="spNewContact" placeholder="山田 太郎" autocomplete="off"></div>
+    <div class="field full"><label>メールアドレス（任意）</label><input id="spNewEmail" placeholder="partner@example.com" autocomplete="off"></div>
+    <div class="field full"><label>電話番号（任意）</label><input id="spNewPhone" placeholder="03-1234-5678" autocomplete="off"></div>
+    <div class="field full"><label>社内メモ（任意）</label><textarea id="spNewNote" rows="2" placeholder="お相手には表示されません"></textarea></div>
     <div id="spAddErr" style="color:var(--r);font-size:12px;min-height:16px"></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" data-act="closemodal">閉じる</button>
@@ -7979,32 +8016,56 @@ function openSubPartnerAdd(){
 async function doSubPartnerAdd(){
   const errEl=document.getElementById('spAddErr');
   const btn=document.getElementById('spAddBtn');
-  const name=((document.getElementById('spNewName')||{}).value||'').trim();
+  const v=id=>((document.getElementById(id)||{}).value||'').trim();
+  const name=v('spNewName');
   if(!name){ if(errEl) errEl.textContent='会社名を入力してください'; return; }
   if(btn){ btn.disabled=true; btn.textContent='登録中…'; }
   const res=await SUPA.subpartnerRegister(name);
+  if(res.error){ if(btn){ btn.disabled=false; btn.textContent='登録する'; } if(errEl) errEl.textContent='登録に失敗しました：'+res.error; return; }
+  // 任意項目が入力されていれば、続けて登録情報を保存する
+  const info={contact:v('spNewContact'), email:v('spNewEmail'), phone:v('spNewPhone'), note:v('spNewNote')};
+  if(info.contact||info.email||info.phone||info.note){
+    const up=await SUPA.subpartnerUpdate(name, info);
+    if(up.error){ if(btn){ btn.disabled=false; btn.textContent='登録する'; } if(errEl) errEl.textContent='会社は登録しましたが、担当者情報の保存に失敗しました：'+up.error; _subPartnerCache=null; return; }
+  }
   if(btn){ btn.disabled=false; btn.textContent='登録する'; }
-  if(res.error){ if(errEl) errEl.textContent='登録に失敗しました：'+res.error; return; }
-  _subPartnerCache=null;   // 一覧を作り直す
+  await loadSubPartners(true);   // 一覧を作り直す
   closeModal();
   toast(res.existed ? `「${name}」は既に登録されています` : `「${name}」を登録しました`);
   render();
 }
 
-/* 登録済み二次パートナーの一覧（フォーム発行のプルダウン用にキャッシュ） */
+/* ───────── 登録済み二次パートナーのキャッシュ ─────────
+   フォーム発行のプルダウンと、一覧画面の「登録情報（担当者・メモ）」表示に使う。 */
 let _subPartnerCache=null;
-async function loadSubPartners(){
+let _subPartnerLoading=false;
+async function loadSubPartners(force){
+  if(force) _subPartnerCache=null;
   if(_subPartnerCache) return _subPartnerCache;
   if(DEMO_MODE) return (_subPartnerCache=[]);
   _subPartnerCache = await SUPA.subpartnerList();
   return _subPartnerCache;
 }
+/* 会社名から登録情報を引く（未取得なら null） */
+function subPartnerInfo(company){
+  const n=(company||'').trim();
+  return (_subPartnerCache||[]).find(s=>(s.company||'').trim()===n) || null;
+}
+/* 画面描画は同期なので、未取得なら裏で1回だけ取得して再描画する */
+function ensureSubPartners(){
+  if(_subPartnerCache || DEMO_MODE || _subPartnerLoading) return;
+  _subPartnerLoading=true;
+  loadSubPartners()
+    .then(()=>{ _subPartnerLoading=false; if(S.view==='subpartners') render(); })
+    .catch(()=>{ _subPartnerLoading=false; });
+}
 
-function openFormShare(){
+async function openFormShare(){
   const agId=S.agencyId;
   const projs = agencyProjects(agId);   // このパートナーに公開されている案件
   // 初期は全案件を公開対象に
   if(_formShareProjs===null) _formShareProjs = new Set(projs.map(p=>p.id));
+  await loadSubPartners();   // ★登録済みの二次パートナーを取得してからモーダルを出す
   renderFormShareModal();
 }
 function renderFormShareModal(){
@@ -8219,18 +8280,27 @@ function viewRecore(){
 
 /* 自社(ag)に紐づく二次パートナーを、会社名でグルーピングして返す */
 function subPartnersOf(ag){
-  const map = new Map();  // 会社名 -> { name, refs:[], pending:[] }
+  const map = new Map();  // 会社名 -> { name, refs:[], pending:[], info }
   const norm = s => (s||'').trim();
+  const blank = key => ({name:key, refs:[], pending:[], info:null});
+  // 登録済みの二次パートナー（送客0でも一覧に出す＝編集できるようにするため）
+  if(ag===S.agencyId){
+    (_subPartnerCache||[]).forEach(s=>{
+      const key = norm(s.company);
+      if(!key) return;
+      map.set(key, {...blank(key), info:s});
+    });
+  }
   // 正式送客済み（referrals、src＝二次パートナー名）
   DB.referrals.filter(r=>r.ag===ag && norm(r.src)).forEach(r=>{
     const key = norm(r.src);
-    if(!map.has(key)) map.set(key, {name:key, refs:[], pending:[]});
+    if(!map.has(key)) map.set(key, blank(key));
     map.get(key).refs.push(r);
   });
   // 未承認（intake、company＝二次パートナー名）
   (DB.intake||[]).filter(x=>x.ag===ag && norm(x.company)).forEach(x=>{
     const key = norm(x.company);
-    if(!map.has(key)) map.set(key, {name:key, refs:[], pending:[]});
+    if(!map.has(key)) map.set(key, blank(key));
     map.get(key).pending.push(x);
   });
   // 配列化＋集計
@@ -8270,6 +8340,9 @@ function subPartnerCard(sp, isK){
     const breakdown = Object.keys(STATUS).filter(s=>counts[s]).map(s=>
       `<span class="tag" style="font-size:10px;background:var(--gray-bg);color:var(--soft)">${STATUS[s].label} ${counts[s]}</span>`
     ).join(' ');
+    // 登録情報（担当者・連絡先）。未登録（送客だけ届いた会社名）の場合は info=null
+    const inf  = sp.info || null;
+    const meta = inf ? [inf.contact, inf.phone, inf.email].filter(Boolean).map(esc).join(' ・ ') : '';
 
     return `<div class="panel" style="margin-bottom:10px;overflow:hidden">
       <div style="display:flex;align-items:center;gap:12px;padding:13px 16px;cursor:pointer" data-act="toggle-subpartner" data-key="${esc(key)}">
@@ -8278,19 +8351,28 @@ function subPartnerCard(sp, isK){
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <strong style="font-weight:700;font-size:14px">${esc(sp.name)}</strong>
             ${isK?`<span class="cell-sub" style="font-size:11px">← ${esc(sp.parent.name)}</span>`:''}
+            ${(!isK&&!inf)?`<span class="tag" style="font-size:10px;background:var(--gray-bg);color:var(--soft)">未登録</span>`:''}
             ${sp.pendingCount?`<span class="tag" style="font-size:10px;background:#FDF2E2;color:#B45309;font-weight:600">未確認 ${sp.pendingCount}</span>`:''}
             ${(!isK&&sp.needDocs)?`<span class="tag" style="font-size:10px;background:#FDEEF1;color:#BE123C;font-weight:600">書類不足 ${sp.needDocs}</span>`:''}
           </div>
+          ${meta?`<div class="cell-sub" style="font-size:11px;margin-top:3px">${meta}</div>`:''}
           <div style="margin-top:4px">${breakdown||'<span class="cell-sub" style="font-size:11px">送客実績なし</span>'}</div>
         </div>
         <div style="text-align:right">
           <div style="font-weight:700;font-size:16px">${sp.total}<span class="cell-sub" style="font-size:11px;font-weight:400">名</span></div>
           <div class="cell-sub" style="font-size:10.5px">入社 ${sp.joined}</div>
-          ${!isK?`<button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:10.5px;margin-top:4px" data-act="issue-subacc" data-company="${esc(sp.name)}">進捗確認リンクを発行</button>`:''}
+          ${!isK?`<div style="display:flex;gap:5px;justify-content:flex-end;margin-top:4px">
+            <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:10.5px" data-act="subpartner-edit" data-company="${esc(sp.name)}">編集</button>
+            <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:10.5px" data-act="issue-subacc" data-company="${esc(sp.name)}">進捗確認リンクを発行</button>
+          </div>`:''}
         </div>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" style="transform:rotate(${open?'90':'0'}deg);transition:transform .15s"><path d="M9 18l6-6-6-6"/></svg>
       </div>
       ${open?`<div style="border-top:1px solid var(--line);padding:6px 16px 12px">
+        ${(!isK&&inf&&inf.note)?`<div style="margin:8px 0 4px;padding:8px 11px;background:var(--gray-bg);border-radius:8px">
+          <div style="font-size:10.5px;color:var(--soft);font-weight:600;margin-bottom:2px">社内メモ</div>
+          <div style="font-size:12.5px;white-space:pre-wrap">${esc(inf.note)}</div>
+        </div>`:''}
         ${sp.pendingCount?`<div style="margin:8px 0 4px;font-size:11.5px;color:#B45309;font-weight:600">未確認（パートナー連携で確認してください）</div>
           ${sp.pending.map(x=>`<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12.5px;border-bottom:1px solid var(--line)"><span>${esc(x.name)}</span><span class="cell-sub" style="font-size:11px">${esc(x.created||'')}</span></div>`).join('')}`:''}
         ${sp.refs.length?`<div style="margin:8px 0 4px;font-size:11.5px;color:var(--soft);font-weight:600">送客済み候補者</div>
@@ -8318,8 +8400,86 @@ function subPartnerCard(sp, isK){
   
 }
 
+/* ───────── 二次パートナーの編集（一次パートナーが操作） ─────────
+   会社名は referrals.source_company / intake.company の突き合わせキーなので、
+   リネームはサーバー側RPC(subpartner_update)で履歴ごと一括更新する。       */
+function openSubPartnerEdit(company){
+  if(DEMO_MODE){ toast('デモモードでは編集できません'); return; }
+  const name=(company||'').trim();
+  const inf = subPartnerInfo(name);
+  if(!inf){
+    // フォーム経由で送客だけ届いた（＝未登録の）会社名。まず登録が必要。
+    showModal(`
+      <div class="modal-title">${esc(name)}</div>
+      <div class="modal-sub">この会社は<b>まだ二次パートナーとして登録されていません</b>（フォーム/CSVの会社名から自動でリスト化されています）。「二次パートナーを登録」で同じ会社名を登録すると、担当者情報の編集ができるようになります。</div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-act="closemodal">閉じる</button>
+        <button class="btn btn-primary" data-act="subpartner-add">登録する</button>
+      </div>`);
+    return;
+  }
+  const sp  = subPartnersOf(S.agencyId).find(x=>x.name===name) || {total:0, pendingCount:0};
+  const cnt = (sp.total||0) + (sp.pendingCount||0);
+  showModal(`
+    <div class="modal-title">二次パートナーを編集</div>
+    <div class="modal-sub">${esc(name)} さまの登録情報を変更します。</div>
+    <div class="field full">
+      <label>会社名 <span style="color:var(--r)">*</span></label>
+      <input id="spEdName" value="${esc(inf.company||name)}" autocomplete="off">
+      ${cnt?`<div class="cell-sub" style="font-size:11px;margin-top:3px;color:#B45309">
+        社名を変更すると、この会社からの<b>送客 ${cnt} 件（履歴・未確認分）も新しい社名に付け替えられます</b>。発行済みのURL・パスワードは変わりません。</div>`
+       :`<div class="cell-sub" style="font-size:11px;margin-top:3px">発行済みのURL・パスワードは変わりません。</div>`}
+    </div>
+    <div class="field full"><label>担当者名</label><input id="spEdContact" value="${esc(inf.contact||'')}" placeholder="山田 太郎" autocomplete="off"></div>
+    <div class="field full"><label>メールアドレス</label><input id="spEdEmail" value="${esc(inf.email||'')}" placeholder="partner@example.com" autocomplete="off"></div>
+    <div class="field full"><label>電話番号</label><input id="spEdPhone" value="${esc(inf.phone||'')}" placeholder="03-1234-5678" autocomplete="off"></div>
+    <div class="field full"><label>社内メモ</label><textarea id="spEdNote" rows="3" placeholder="お相手には表示されません">${esc(inf.note||'')}</textarea></div>
+    <div id="spEdErr" style="color:var(--r);font-size:12px;min-height:16px"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" data-act="closemodal">閉じる</button>
+      <button class="btn btn-primary" id="spEdBtn" data-act="subpartner-edit-do" data-company="${esc(name)}">保存する</button>
+    </div>`);
+  setTimeout(()=>{ const el=document.getElementById('spEdName'); if(el) el.focus(); }, 40);
+}
+
+async function doSubPartnerEditSave(oldCompany){
+  const errEl=document.getElementById('spEdErr');
+  const btn=document.getElementById('spEdBtn');
+  const v=id=>((document.getElementById(id)||{}).value||'').trim();
+  const oldName=(oldCompany||'').trim();
+  const newName=v('spEdName');
+  if(!newName){ if(errEl) errEl.textContent='会社名を入力してください'; return; }
+
+  if(newName!==oldName){
+    const sp = subPartnersOf(S.agencyId).find(x=>x.name===oldName);
+    const cnt = sp ? (sp.total||0)+(sp.pendingCount||0) : 0;
+    if(!confirm(`会社名を「${oldName}」から「${newName}」に変更します。\n${cnt?`この会社の送客 ${cnt} 件も新しい社名に付け替えられます。\n`:''}よろしいですか？`)) return;
+  }
+
+  if(btn){ btn.disabled=true; btn.textContent='保存中…'; }
+  const res=await SUPA.subpartnerUpdate(oldName, {
+    company:newName, contact:v('spEdContact'), email:v('spEdEmail'), phone:v('spEdPhone'), note:v('spEdNote')
+  });
+  if(btn){ btn.disabled=false; btn.textContent='保存する'; }
+  if(res.error){ if(errEl) errEl.textContent='保存に失敗しました：'+res.error; return; }
+
+  // 画面上のデータも即座に付け替える（サーバー側は更新済みなので save() は呼ばない）
+  if(res.renamed){
+    const ag=S.agencyId;
+    DB.referrals.forEach(r=>{ if(r.ag===ag && (r.src||'').trim()===oldName) r.src=newName; });
+    (DB.intake||[]).forEach(x=>{ if(x.ag===ag && (x.company||'').trim()===oldName) x.company=newName; });
+    (DB.subaccounts||[]).forEach(a=>{ if(a.ag===ag && (a.company||'').trim()===oldName) a.company=newName; });
+    if(_openSubPartner===oldName) _openSubPartner=newName;
+  }
+  await loadSubPartners(true);   // 登録情報を取り直す
+  closeModal();
+  toast(res.renamed ? `「${newName}」に変更しました${res.moved?`（送客 ${res.moved} 件を付け替え）`:''}` : '保存しました');
+  render();
+}
+
 function viewSubPartners(){
   const isK = S.role==='kanoa';
+  if(!isK) ensureSubPartners();   // 登録情報（担当者・メモ）を裏で取得
   setHeader(isK?'二次パートナー':'パートナー', isK?'一次パートナーの下にいる二次パートナーと送客状況を一覧で確認できます':'代理店パートナーごとに、紹介された方の進捗・書類の不足・提出を管理できます',
     isK?'':'<button class="btn btn-ghost btn-sm" data-act="subpartner-add" style="margin-right:8px">二次パートナーを登録</button><button class="btn btn-primary btn-sm" data-act="form-share">紹介フォームを発行</button>');
   const c=document.getElementById('content');
