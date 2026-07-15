@@ -2600,12 +2600,27 @@ function _silentRerenderInner(){
   if(focusId){ const el=document.getElementById(focusId); if(el){ try{ el.focus({preventScroll:true}); if(selStart!=null && 'setSelectionRange' in el) el.setSelectionRange(selStart, selEnd); }catch(e){} } }
 }
 
-/* 入力中（msgInput にフォーカス）でも、メッセージ表示部(.chat-body)だけを更新して
-   入力欄・日本語変換・カーソルを壊さずに新着を反映する */
+/* 入力中（msgInput にフォーカス）でも、メッセージ表示部(.chat-body)と
+   スレッド上部の状況表示（ステータスバッジ・パイプライン）を更新する。
+   入力欄・日本語変換・カーソルは壊さない（ヘッダーはフォーカスを持たない静的表示のため差し替え可）。 */
 function refreshChatBodyOnly(){
-  const realBody=document.querySelector('#content .chat-body'); if(!realBody) return;
   const ag=curThreadAg(); if(ag==null) return;
-  let html; try{ html=chatBodyHTML(ag, S.threadRef||null, meRole()); }catch(e){ return; }
+  const viewer=meRole();
+  const curRef=S.threadRef||null;
+  // ① スレッド上部の状況ヘッダー（候補者のステータス・パイプライン）を差し替える。
+  //    KANOAが「連絡」からステータスを変えたとき、相手側にも即時反映させる要。
+  const ctx=document.querySelector('#content .conv .chat > .cmd, #content .conv .chat > .thread-ctx');
+  if(ctx){
+    let ctxHtml; try{ ctxHtml=threadCtxHeader(ag, viewer, curRef); }catch(e){ ctxHtml=null; }
+    if(ctxHtml!=null){
+      const tmp=document.createElement('div'); tmp.innerHTML=ctxHtml;
+      const next=tmp.firstElementChild;
+      if(next && next.outerHTML!==ctx.outerHTML) ctx.replaceWith(next);
+    }
+  }
+  // ② メッセージ本文
+  const realBody=document.querySelector('#content .chat-body'); if(!realBody) return;
+  let html; try{ html=chatBodyHTML(ag, curRef, viewer); }catch(e){ return; }
   if(html==null || html===realBody.innerHTML) return;
   const atBottom=(realBody.scrollHeight-realBody.scrollTop-realBody.clientHeight)<40;
   const prev=realBody.scrollTop;
