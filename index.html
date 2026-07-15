@@ -2511,18 +2511,33 @@ const VIEW_MAP = {
 };
 function render(){
   const c = document.getElementById('content');
+  if(!c) return;
   c.className = 'content';
   c.style.padding='';
-  (VIEW_MAP[S.view]||VIEW_MAP.overview)();
+  try{
+    (VIEW_MAP[S.view]||VIEW_MAP.overview)();
+  }catch(e){
+    console.warn('[render]', S.view, e && e.message);
+    // ビュー描画が落ちても白画面にはしない：直前の内容が残っていればそのまま、空なら最小の再試行案内
+    if(!c.innerHTML.trim()){
+      c.innerHTML = `<div class="content-narrow" style="padding:40px 0;text-align:center;color:var(--soft)">
+        表示の更新中に問題が発生しました。
+        <div style="margin-top:10px"><button class="btn btn-ghost btn-sm" data-act="nav" data-view="${esc(S.view||'overview')}">再読み込み</button></div>
+      </div>`;
+    }
+  }
   c.classList.remove('anim'); void c.offsetWidth; c.classList.add('anim');
 }
 /* ユーザーに見えない静かな再描画：スクロール位置・チャット位置・フォーカスを保ったまま内容だけ差し替える。
    リアルタイム更新（commitFresh）から呼ぶことで、画面のブレ・チラつきを防ぐ。 */
 let _rerendering=false;
+let _ghostActive=false;   // ghost描画中は本物の#contentが一時的にid退避される。この間の直接再描画を防ぐ
 function silentRerender(){
   if(_rerendering) return;   // 再入防止：描画中の再描画要求は無視（無限ループ・スタックオーバーフロー対策）
   _rerendering=true;
-  try{ _silentRerenderInner(); } finally { _rerendering=false; }
+  try{ _silentRerenderInner(); }
+  catch(e){ console.warn('[silentRerender]', e && e.message); }
+  finally { _rerendering=false; }
 }
 function _silentRerenderInner(){
   const real = document.getElementById('content');
@@ -2549,17 +2564,23 @@ function _silentRerenderInner(){
   ghost.style.cssText = 'position:absolute;left:-99999px;top:0;width:'+real.clientWidth+'px;visibility:hidden';
   real.id = '__content_real';           // 本物のidを一時的に外す
   parent.appendChild(ghost);
-  let nextHTML='';
+  _ghostActive=true;
+  let nextHTML=null;
   try{
     (VIEW_MAP[S.view]||VIEW_MAP.overview)();   // ghost(#content)に描画される
     nextHTML = ghost.innerHTML;
+  } catch(e){
+    // 描画に失敗しても、本物の中身は絶対に壊さない（ホワイトアウトの根絶）
+    console.warn('[silentRerender:view]', e && e.message);
+    nextHTML = null;
   } finally {
-    parent.removeChild(ghost);
-    real.id = 'content';                 // 本物のidを戻す
+    if(ghost.parentNode) ghost.parentNode.removeChild(ghost);
+    real.id = 'content';                 // 本物のidを必ず戻す
+    _ghostActive=false;
   }
 
-  // 中身が同じなら実DOMを一切触らない → 揺れ・チラつきゼロ
-  if(nextHTML === real.innerHTML) return;
+  // 描画に失敗した、または中身が同じなら実DOMを一切触らない → 揺れ・チラつき・白画面ゼロ
+  if(nextHTML===null || nextHTML === real.innerHTML) return;
 
   // 変わったときだけ反映
   real.className = 'content';
@@ -3086,11 +3107,13 @@ function renderRefBulk(){
   </div>`;
 }
 function renderRefTable(){
+  const wrap=document.getElementById('rTableWrap');
+  if(!wrap) return;   // 描画枠が未生成／オフスクリーン退避中は何もしない（ホワイトアウト防止）
   const rows=refFiltered();
   const cEl=document.getElementById('rCount'); if(cEl) cEl.textContent=`${rows.length} 名${rSel.size?` · ${rSel.size}件選択`:''}`;
   const rr=document.getElementById('rReset'); if(rr) rr.innerHTML = anyRFilter()?`<button class="btn btn-ghost btn-sm" data-act="rfilter-reset-all" style="padding:4px 10px;font-size:11.5px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>抽出を解除</button>`:'';
   const fp=document.getElementById('fpCount'); if(fp) fp.textContent=`該当 ${rows.length} 名`;
-  document.getElementById('rTableWrap').innerHTML = referralTable(rows, {showAgency:true, editable:true, select:true});
+  wrap.innerHTML = referralTable(rows, {showAgency:true, editable:true, select:true});
   renderRefBulk();
 }
 function referralTable(rows, opt={}){
