@@ -1292,8 +1292,14 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
   async function delRow(table,col,val){ if(!sb) return; try{ await sb.from(table).delete().eq(col,val); }catch(e){ console.error(e); } }
   /* リアルタイム購読（postgres_changes）。RLSにより自分が見える行の変更のみ届く */
   let _rtCh=null;
-  async function setRealtimeAuth(){
-    try{ const {data}=await sb.auth.getSession(); if(data&&data.session&&sb.realtime&&sb.realtime.setAuth) sb.realtime.setAuth(data.session.access_token); }catch(e){}
+  let _rtLastEventAt=0;   // 最後にRealtimeイベントを実際に受信した時刻（healthyの実測判定に使う）
+  let _rtProven=false;    // 一度でも実データのRealtimeイベントを受信できたか（anon誤判定の防止）
+  async function setRealtimeAuth(token){
+    try{
+      let tk=token;
+      if(!tk){ const {data}=await sb.auth.getSession(); tk=data&&data.session&&data.session.access_token; }
+      if(tk && sb.realtime && sb.realtime.setAuth) sb.realtime.setAuth(tk);
+    }catch(e){}
   }
   async function loadMessages(){   // 連絡のみ軽量取得（高速な新着検知用）
     if(!sb) return null;
@@ -1310,7 +1316,7 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
       setRealtimeAuth();
       _rtCh = sb.channel('kanoa-realtime-'+Date.now());
       ['messages','referrals','tasks','assignments','projects','agencies','members','documents','login_logs','invoices','reflog'].forEach(tb=>{
-        _rtCh.on('postgres_changes', {event:'*', schema:'public', table:tb}, payload=>{ try{ onChange && onChange(tb, payload); }catch(e){} });
+        _rtCh.on('postgres_changes', {event:'*', schema:'public', table:tb}, payload=>{ _rtLastEventAt=Date.now(); _rtProven=true; try{ onChange && onChange(tb, payload); }catch(e){} });
       });
       _rtCh.subscribe(status=>{
         const prev=_rtStatus;
@@ -1343,8 +1349,17 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     if(_rtOnChange) subscribeRealtime(_rtOnChange);
   }
   function unsubscribeRealtime(){ try{ if(_rtCh){ sb.removeChannel(_rtCh); _rtCh=null; } if(_rtWatchdog){ clearInterval(_rtWatchdog); _rtWatchdog=null; } _rtStatus='closed'; }catch(e){} }
-  /* Realtimeが「今つながって購読できている」かを返す。ポーリング要否の判定に使う */
-  function realtimeHealthy(){ return !!_rtCh && _rtStatus==='SUBSCRIBED'; }
+  /* Realtimeが「実際に変更を届けられている」かを返す。ポーリング停止の判定に使う。
+     ★注意：WebSocketが SUBSCRIBED でも、anonセッションや Realtime未有効化のテーブルでは
+       変更通知が1件も流れてこない。その状態を「正常」と誤判定すると保険ポーリングまで
+       止まって完全に沈黙する。そこで「直近に実際のイベントを受信した実績」を必須にする。
+     _rtProven: 一度でも実データ受信に成功したか。未実証の間はポーリングを止めない。 */
+  function realtimeHealthy(){
+    if(!_rtCh || _rtStatus!=='SUBSCRIBED') return false;
+    if(!_rtProven) return false;                       // まだ一度も受信実績がない → 信用しない
+    return (Date.now()-_rtLastEventAt) < 120000;       // 直近2分に受信があれば健全とみなす
+  }
+  function realtimeProven(){ return _rtProven; }
   async function signInPassword(email,pw){ const {error}=await sb.auth.signInWithPassword({email,password:pw}); return error; }
   async function signInOtp(email){ const {error}=await sb.auth.signInWithOtp({email}); return error; }
   async function signOut(){ try{ await sb.auth.signOut(); }catch(e){} }
@@ -1484,7 +1499,7 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     if(!sb) return;
     try{ await sb.from('login_logs').insert({agency_id:agId,success:!!success,method:method||'パスワード'}); }catch(e){ console.warn('login_log insert failed',e); }
   }
-  return { boot, ensureClient, signInPassword, signInOtp, signOut, resetPassword, updatePassword, partnerLogin, loginThen, loadAll, loadMessages, scheduleSync, syncNow, isBusy, delRow, insertReferral, subpartnerRegister, subpartnerList, subpartnerUpdate, trackerIssue, trackerGet, trackerSetPw, subpartnerPwGet, subpartnerPwSet, trackerView, trackerInfo, trackerRows, trackerUpdatePerson, trackerAddDoc, trackerDelDoc, attachDocs, formPartnerInfo, trackerList, trackerRevoke, uploadDoc, docUrl, removeDoc, insertLoginLog, subscribeRealtime, unsubscribeRealtime, realtimeHealthy, setRealtimeAuth, forceReconnectRealtime };
+  return { boot, ensureClient, signInPassword, signInOtp, signOut, resetPassword, updatePassword, partnerLogin, loginThen, loadAll, loadMessages, scheduleSync, syncNow, isBusy, delRow, insertReferral, subpartnerRegister, subpartnerList, subpartnerUpdate, trackerIssue, trackerGet, trackerSetPw, subpartnerPwGet, subpartnerPwSet, trackerView, trackerInfo, trackerRows, trackerUpdatePerson, trackerAddDoc, trackerDelDoc, attachDocs, formPartnerInfo, trackerList, trackerRevoke, uploadDoc, docUrl, removeDoc, insertLoginLog, subscribeRealtime, unsubscribeRealtime, realtimeHealthy, realtimeProven, setRealtimeAuth, forceReconnectRealtime };
 })();
 
 const LS_KEY = 'kanoa_relay_v22';
@@ -2635,13 +2650,14 @@ function startAutoRefresh(){
   if(DEMO_MODE) return;
   stopAutoRefresh();
   // ── 保険ポーリング ──
-  // Realtimeが正常に購読できている間は「読み直し」を行わない（＝pushのみで即時反映）。
-  // Realtimeが切れている時だけ、取りこぼし防止のために読み直す。
+  // Realtimeで実際に変更を受信できている（realtimeHealthy=true）間だけ「読み直し」を止める。
+  // それ以外（anonセッションでRLSの通知が届かない・Realtime未有効化・接続断など）は
+  // 取りこぼし＝自動反映されない状態になるため、必ずポーリングで最新化する。
   _pollT=setInterval(()=>{
-    if(SUPA.realtimeHealthy && SUPA.realtimeHealthy()){ _pollSkips++; return; }  // 接続正常 → 何もしない
+    if(SUPA.realtimeHealthy && SUPA.realtimeHealthy()){ _pollSkips++; return; }  // 受信実績あり＝pushで即時反映されている → 読み直し不要
     _pollSkips=0;
     applyRefresh();
-  }, 5000);
+  }, 3000);
   _msgT=setInterval(pollMessages, 1000);
   startRealtime();
   if(!_visWired){
