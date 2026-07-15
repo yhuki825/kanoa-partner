@@ -1018,20 +1018,30 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
      同時に使うと、古いデータを持った端末が他端末の変更を静かに上書きしてしまう。
      そこで「前回サーバーへ送った内容」と比較し、実際に変わった行だけを送る。
      こうすれば、自分が触っていない行を上書きしなくなる。                        */
-  const _sent = Object.create(null);   // table -> { id: 内容の指紋 }
+  const _sent = Object.create(null);   // table -> { key: 内容の指紋 }
   function _fingerprint(row){ try{ return JSON.stringify(row); }catch(e){ return String(Math.random()); } }
+  /* テーブルごとの行キー。assignments は id を持たず (project_id, agency_id) が主キーなので、
+     そこだけ複合キーで識別する。これを誤ると「変更が送信されない／古い値で上書き」が起きる。 */
+  const _PK = { assignments:['project_id','agency_id'] };
+  const _ONCONFLICT = { assignments:'project_id,agency_id' };
+  function _keyOf(table, row){
+    const pk=_PK[table];
+    if(pk){ return pk.map(k=>row[k]).join('::'); }
+    return (row && row.id!=null) ? String(row.id) : null;
+  }
   /* サーバーから読み直した内容を「送信済み」として記録する（無駄な再送を防ぐ） */
   function markSynced(table, rows){
     const m=_sent[table]||(_sent[table]=Object.create(null));
-    for(const r of rows||[]){ if(r && r.id!=null) m[r.id]=_fingerprint(r); }
+    for(const r of rows||[]){ const k=_keyOf(table,r); if(k!=null) m[k]=_fingerprint(r); }
   }
   function _changedRows(table, rows){
     const m=_sent[table]||(_sent[table]=Object.create(null));
     const out=[];
     for(const r of rows||[]){
-      if(!r || r.id==null) continue;
+      const k=_keyOf(table,r);
+      if(k==null) continue;
       const fp=_fingerprint(r);
-      if(m[r.id]!==fp) out.push(r);
+      if(m[k]!==fp) out.push(r);
     }
     return out;
   }
@@ -1044,7 +1054,8 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
       const changed=_changedRows(table, rows);
       if(!changed.length) return;                 // 変更なし → 何も送らない（他端末の更新を壊さない）
       try{
-        const { error }=await sb.from(table).upsert(changed);
+        const oc=_ONCONFLICT[table];
+        const { error }=await (oc ? sb.from(table).upsert(changed, {onConflict:oc}) : sb.from(table).upsert(changed));
         if(error){ console.warn('[sync]',table,error.message); return; }
         markSynced(table, changed);               // 成功した行だけ「送信済み」に記録
       }
