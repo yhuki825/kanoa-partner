@@ -1313,7 +1313,13 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
         _rtCh.on('postgres_changes', {event:'*', schema:'public', table:tb}, payload=>{ try{ onChange && onChange(tb, payload); }catch(e){} });
       });
       _rtCh.subscribe(status=>{
+        const prev=_rtStatus;
         _rtStatus=status;
+        // 接続が確立した瞬間に1回だけ最新化する。
+        // 接続処理中（購読が張られるまでの数百ms）に他ユーザーが行った変更を取りこぼさないため。
+        if(status==='SUBSCRIBED' && prev!=='SUBSCRIBED' && _rtOnChange){
+          try{ _rtOnChange('__connected__', null); }catch(e){}
+        }
         // 接続が切れた/エラーになったら、古いチャンネルを破棄して次のwatchdogサイクルで再接続する
         if(status==='CHANNEL_ERROR' || status==='TIMED_OUT' || status==='CLOSED'){
           try{ sb.removeChannel(_rtCh); }catch(e){}
@@ -1337,6 +1343,8 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     if(_rtOnChange) subscribeRealtime(_rtOnChange);
   }
   function unsubscribeRealtime(){ try{ if(_rtCh){ sb.removeChannel(_rtCh); _rtCh=null; } if(_rtWatchdog){ clearInterval(_rtWatchdog); _rtWatchdog=null; } _rtStatus='closed'; }catch(e){} }
+  /* Realtimeが「今つながって購読できている」かを返す。ポーリング要否の判定に使う */
+  function realtimeHealthy(){ return !!_rtCh && _rtStatus==='SUBSCRIBED'; }
   async function signInPassword(email,pw){ const {error}=await sb.auth.signInWithPassword({email,password:pw}); return error; }
   async function signInOtp(email){ const {error}=await sb.auth.signInWithOtp({email}); return error; }
   async function signOut(){ try{ await sb.auth.signOut(); }catch(e){} }
@@ -1476,7 +1484,7 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     if(!sb) return;
     try{ await sb.from('login_logs').insert({agency_id:agId,success:!!success,method:method||'パスワード'}); }catch(e){ console.warn('login_log insert failed',e); }
   }
-  return { boot, ensureClient, signInPassword, signInOtp, signOut, resetPassword, updatePassword, partnerLogin, loginThen, loadAll, loadMessages, scheduleSync, syncNow, isBusy, delRow, insertReferral, subpartnerRegister, subpartnerList, subpartnerUpdate, trackerIssue, trackerGet, trackerSetPw, subpartnerPwGet, subpartnerPwSet, trackerView, trackerInfo, trackerRows, trackerUpdatePerson, trackerAddDoc, trackerDelDoc, attachDocs, formPartnerInfo, trackerList, trackerRevoke, uploadDoc, docUrl, removeDoc, insertLoginLog, subscribeRealtime, unsubscribeRealtime, setRealtimeAuth, forceReconnectRealtime };
+  return { boot, ensureClient, signInPassword, signInOtp, signOut, resetPassword, updatePassword, partnerLogin, loginThen, loadAll, loadMessages, scheduleSync, syncNow, isBusy, delRow, insertReferral, subpartnerRegister, subpartnerList, subpartnerUpdate, trackerIssue, trackerGet, trackerSetPw, subpartnerPwGet, subpartnerPwSet, trackerView, trackerInfo, trackerRows, trackerUpdatePerson, trackerAddDoc, trackerDelDoc, attachDocs, formPartnerInfo, trackerList, trackerRevoke, uploadDoc, docUrl, removeDoc, insertLoginLog, subscribeRealtime, unsubscribeRealtime, realtimeHealthy, setRealtimeAuth, forceReconnectRealtime };
 })();
 
 const LS_KEY = 'kanoa_relay_v22';
@@ -2607,10 +2615,18 @@ function refreshChatBodyOnly(){
 
 /* ════════════════════ 自動更新・リアルタイム（本番のみ） ════════════════════ */
 let _pollT=null, _msgT=null, _rtDebounce=null;
+let _pollSkips=0;   // Realtime正常でポーリングを見送った連続回数（デバッグ・保険用）
 function startAutoRefresh(){
   if(DEMO_MODE) return;
   stopAutoRefresh();
-  _pollT=setInterval(applyRefresh, 5000);
+  // ── 保険ポーリング ──
+  // Realtimeが正常に購読できている間は「読み直し」を行わない（＝pushのみで即時反映）。
+  // Realtimeが切れている時だけ、取りこぼし防止のために読み直す。
+  _pollT=setInterval(()=>{
+    if(SUPA.realtimeHealthy && SUPA.realtimeHealthy()){ _pollSkips++; return; }  // 接続正常 → 何もしない
+    _pollSkips=0;
+    applyRefresh();
+  }, 5000);
   _msgT=setInterval(pollMessages, 1000);
   startRealtime();
   if(!_visWired){
