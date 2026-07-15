@@ -822,6 +822,17 @@ select.icell.stsel{font-weight:600;border:1px solid var(--line-2);background:var
 .login-foot-link:hover{color:#1f3f63}
 .scrim{display:none;position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:55}
 .scrim.on{display:block}
+
+/* doc guide styles */
+.doc-guide-card { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px; }
+.doc-guide-icon { width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center; font-size: 11px; font-weight: 700; }
+.doc-guide-icon.sample { background: var(--gray-bg); color: var(--soft); }
+.doc-guide-icon.tmpl { background: var(--accent-soft); color: var(--accent); }
+.doc-guide-content { flex: 1; min-width: 0; }
+.doc-guide-title { font-size: 13px; font-weight: 700; }
+.doc-guide-subtitle { font-weight: 400; color: var(--soft); font-size: 11.5px; }
+.doc-guide-desc { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.doc-guide-action { white-space: nowrap; text-decoration: none; }
 </style>
 </head>
 <body>
@@ -829,7 +840,18 @@ select.icell.stsel{font-weight:600;border:1px solid var(--line-2);background:var
 
 
 <!-- ══════════ LOGIN ══════════ -->
-<div id="bootSplash" style="position:fixed;inset:0;z-index:9998;display:flex;align-items:center;justify-content:center;background:radial-gradient(130% 100% at 50% 0%,#ffffff,#f4f7fa)"><div style="width:34px;height:34px;border-radius:50%;border:3px solid #e6ebf1;border-top-color:#1f3f63;animation:kBootSpin .8s linear infinite"></div><style>@keyframes kBootSpin{to{transform:rotate(360deg)}}</style></div>
+<div id="bootSplash" style="position:fixed;inset:0;z-index:9998;display:flex;align-items:center;justify-content:center;background:radial-gradient(130% 100% at 50% 0%,#ffffff,#f4f7fa)"><div style="width:34px;height:34px;border-radius:50%;border:3px solid #e6ebf1;border-top-color:#1f3f63;animation:kBootSpin .8s linear infinite"></div><style>@keyframes kBootSpin{to{transform:rotate(360deg)}}
+/* doc guide styles */
+.doc-guide-card { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px; }
+.doc-guide-icon { width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center; font-size: 11px; font-weight: 700; }
+.doc-guide-icon.sample { background: var(--gray-bg); color: var(--soft); }
+.doc-guide-icon.tmpl { background: var(--accent-soft); color: var(--accent); }
+.doc-guide-content { flex: 1; min-width: 0; }
+.doc-guide-title { font-size: 13px; font-weight: 700; }
+.doc-guide-subtitle { font-weight: 400; color: var(--soft); font-size: 11.5px; }
+.doc-guide-desc { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.doc-guide-action { white-space: nowrap; text-decoration: none; }
+</style></div>
 <div class="login-wrap" id="loginWrap" style="display:none">
   <canvas id="loginCanvas"></canvas>
   <div class="login-veil"></div>
@@ -921,7 +943,7 @@ select.icell.stsel{font-weight:600;border:1px solid var(--line-2);background:var
 const CONFIG = (()=>{
   const DEFAULT = { SB_URL:'https://oicpfsfvywdhdriqehyr.supabase.co', SB_ANON_KEY:'sb_publishable_fBK1T1Xhx1Luj-OjbzFvaQ_4pUgNOms' };
   try{ const s=JSON.parse(localStorage.getItem('kanoa_supa_cfg')||'null');
-    if(s && typeof s.url==='string'){ return s.url ? {SB_URL:s.url, SB_ANON_KEY:s.key||''} : {SB_URL:'',SB_ANON_KEY:''}; }
+    if (typeof s?.url === 'string') { return { SB_URL: s.url, SB_ANON_KEY: s?.key ?? '' }; }
   }catch(e){}
   return DEFAULT;
 })();
@@ -943,7 +965,7 @@ const SUPA = (()=>{
   const toAssign  =a=>({project_id:a.pj,agency_id:a.ag,published:!!a.published,ref_override:a.refOv??null,suc_override:a.sucOv??null});
   const fromIntake=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kana||'',phone:r.phone||'',email:r.email||'',address:r.address||'',area:r.area||'',src:r.source||'',company:r.company||'',note:r.note||'',docs:Array.isArray(r.docs)?r.docs:(r.docs?JSON.parse(r.docs):[]),source_type:r.source_type||'form',status:r.status||'pending',decidedAt:r.decided_at?TZ_toLocal(r.decided_at):'',refId:r.ref_id||'',rejectNote:r.reject_note||'',created:TZ_toLocal(r.created_at)||nowTS()});
 const toIntake=r=>({id:r.id,project_id:r.pj||null,agency_id:r.ag,name:r.name,kana:r.kana||null,phone:r.phone||null,email:r.email||null,address:r.address||null,area:r.area||null,source:r.src||null,company:r.company||null,note:r.note||null,docs:JSON.stringify(r.docs||[]),source_type:r.source_type||'form',status:r.status||'pending',decided_at:r.decidedAtISO||null,ref_id:r.refId||null,reject_note:r.rejectNote||null});
-const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kana,phone:r.phone,email:r.email,address:r.address,area:r.area,src:r.source_company||'',resigned:!!r.resigned,resignedOn:r.resigned_on||null,resignFraud:!!r.resign_fraud,resignConfirmed:!!r.resign_confirmed,status:r.status,session:r.session||'—',joined:r.joined_on||'',created:TZ_toLocalDay(r.created_at),note:r.note||'',docs:[],spi:r.spi_status||'none',compliance:r.compliance_status||'none',seenK:r.seen_kanoa!==false,docs:[]});
+const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kana,phone:r.phone,email:r.email,address:r.address,area:r.area,src:r.source_company||'',resigned:!!r.resigned,resignedOn:r.resigned_on||null,resignFraud:!!r.resign_fraud,resignConfirmed:!!r.resign_confirmed,status:r.status,session:r.session||'—',joined:r.joined_on||'',created:TZ_toLocalDay(r.created_at),note:r.note||'',docs:[],spi:r.spi_status||'none',compliance:r.compliance_status||'none',seenK:r.seen_kanoa!==false});
   const toRef  =r=>({id:r.id,project_id:r.pj,agency_id:r.ag,name:r.name,kana:r.kana,phone:r.phone,email:r.email,address:r.address,area:r.area,source_company:r.src||null,resigned:!!r.resigned,resigned_on:r.resignedOn||null,resign_fraud:!!r.resignFraud,resign_confirmed:!!r.resignConfirmed,status:r.status,session:r.session==='—'?null:r.session,joined_on:r.joined||null,note:r.note||null,spi_status:r.spi||'none',compliance_status:r.compliance||'none',seen_kanoa:r.seenK!==false});
   const fromReflog=r=>({id:r.id,refId:r.ref_id,ts:r.ts||'',by:r.by_name||'',byRole:r.by_role||'',action:r.action||'',detail:r.detail||''});
   const toReflog=l=>({id:l.id,ref_id:l.refId,ts:l.ts||'',by_name:l.by||'',by_role:l.byRole||'',action:l.action||'',detail:l.detail||''});
@@ -1218,7 +1240,7 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
   async function subpartnerUpdate(company, patch){
     if(!sb) return {error:'未接続'};
     const p = patch||{};
-    const arg = (v)=> (v===undefined || v===null) ? null : String(v);
+    const arg = (v) => v ?? null;
     const { data, error } = await sb.rpc('subpartner_update', {
       p_company:     company,
       p_new_company: (p.company==null || String(p.company).trim()==='') ? null : String(p.company).trim(),
@@ -1372,15 +1394,8 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
      RLSによりパートナーは自社行のみ読み取り可能（service_role keyをサーバーサイドで使うか、Edge Functionで照合）。
      デモではlocalStorage内のpwをそのまま照合。 */
   async function partnerLoginDirect(loginId, pw){
-    // Edge Function 未配備時のフォールバック（直接照合）。配備後は自動的に使われなくなる。
-    try{
-      await ensureClient();
-      const { data } = await sb.from('agencies').select('id,email,pw_hash,status').ilike('email', loginId).maybeSingle();
-      if(!data || !data.pw_hash) return null;
-      if(data.status==='suspended') throw new Error('このアカウントは停止されています。');
-      const hash=await hashPwAsync(pw);
-      return data.pw_hash===hash ? data.id : null;
-    }catch(e){ if(e && e.message && e.message.indexOf('停止')>=0) throw e; return null; }
+    // セキュリティ観点から、クライアント側での全ハッシュ取得による直接照合を廃止
+    throw new Error('Edge Functionが利用できないため、ログイン処理を中断しました。');
   }
   async function partnerLogin(loginId, pw){
     await ensureClient();
@@ -1504,7 +1519,16 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
 
 const LS_KEY = 'kanoa_relay_v22';
 const yen = n => '¥' + (n||0).toLocaleString('ja-JP');
-const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function html(strings, ...values) {
+  return strings.reduce((result, string, i) => {
+    const value = values[i - 1];
+    if (value && typeof value === 'object' && value.__html_safe) return result + value.val + string;
+    const safeValue = typeof value === 'string' ? esc(value) : (value ?? '');
+    return result + safeValue + string;
+  });
+}
+const safe = val => ({__html_safe: true, val});
 const AG_COLORS=['#4f46e5','#0ea5e9','#0d9488','#16a34a','#d97706','#db2777','#7c3aed','#dc2626'];
 function agColor(id){ let h=0; const s=String(id||''); for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; return AG_COLORS[h%AG_COLORS.length]; }
 function agAvatar(a,size){ const s=size||32; return `<div style="width:${s}px;height:${s}px;border-radius:${Math.round(s*0.28)}px;background:${agColor(a.id)};color:#fff;display:grid;place-items:center;font-weight:700;font-size:${Math.round(s*0.42)}px;flex-shrink:0">${esc((a.name||'?').slice(0,1))}</div>`; }
@@ -1823,18 +1847,18 @@ function openDocGuide(backId){
   const rows=DOC_TEMPLATES.map(t=>{
     const url=tplUrl(t.file);
     const isSample=t.kind==='記入見本';
-    return `<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px">
-      <div style="width:34px;height:34px;border-radius:8px;background:${isSample?'var(--gray-bg)':'var(--accent-soft)'};color:${isSample?'var(--soft)':'var(--accent)'};display:grid;place-items:center;font-size:11px;font-weight:700">${isSample?'見本':'雛形'}</div>
-      <div style="flex:1;min-width:0">
-        <div style="font-size:13px;font-weight:700">${esc(t.label)}　<span style="font-weight:400;color:var(--soft);font-size:11.5px">${esc(t.kind)}</span></div>
-        <div class="cell-sub" style="font-size:11px">${esc(t.desc)}</div>
+    return html`<div class="doc-guide-card">
+      <div class="doc-guide-icon ${isSample?'sample':'tmpl'}">${isSample?'見本':'雛形'}</div>
+      <div class="doc-guide-content">
+        <div class="doc-guide-title">${t.label}　<span class="doc-guide-subtitle">${t.kind}</span></div>
+        <div class="doc-guide-desc">${t.desc}</div>
       </div>
       ${url
-        ? `<a class="btn ${isSample?'btn-ghost':'btn-primary'} btn-sm" href="${esc(url)}" target="_blank" rel="noopener" ${isSample?'':'download'} style="white-space:nowrap;text-decoration:none">${isSample?'見る':'ダウンロード'}</a>`
-        : `<span class="cell-sub" style="font-size:11px">準備中</span>`}
+        ? safe(`<a class="btn ${isSample?'btn-ghost':'btn-primary'} btn-sm doc-guide-action" href="${esc(url)}" target="_blank" rel="noopener" ${isSample?'':'download'}>${isSample?'見る':'ダウンロード'}</a>`)
+        : safe(`<span class="cell-sub" style="font-size:11px">準備中</span>`)}
     </div>`;
   }).join('');
-  showModal(`
+  showModal(safe(`
     <div class="modal-title">履歴書・職務経歴書の雛形と記入見本</div>
     <div class="modal-sub">雛形（Word）に記入してご提出ください。書き方に迷ったら記入見本をご覧ください。</div>
     ${rows}
@@ -1851,7 +1875,7 @@ function openDocGuide(backId){
       (_tkEditDraft && _tkEditDraft.id)
         ? `<button class="btn btn-primary" data-act="doc-guide-back">編集にもどる</button>`
         : `<button class="btn btn-primary" data-act="closemodal">閉じる</button>`
-    }</div>`);
+    }</div>`).val);
 }
 let _tkEditDraft = null;   // 雛形モーダルを開く直前の入力内容（戻ったときに復元する）
 
@@ -2253,7 +2277,24 @@ function splitEarn(refs){
 let S = { role:null, agencyId:null, view:null };
 
 /* ════════════════════ LOGIN ════════════════════ */
-let loginTab = 'agency';
+// アプリケーション全体のUI状態を管理（グローバル状態のカプセル化）
+const AppState = {
+  ui: {
+    loginTab: 'agency',
+    curRef: null,
+    assignQ: '',
+    msgFilter: { q: '', pj: '' },
+    threadFilter: 'all',
+    pjSort: 'reward',
+    bcSelected: null,
+    bcDraft: '',
+    rFilterOpen: false,
+    rSel: new Set(),
+    myRefTab: 'all'
+  }
+};
+let loginTab = AppState.ui.loginTab; // 既存ロジックとの互換性のため参照を維持
+
 /* 企業コード → 内部ログイン用アドレス（実在しない識別子。provisioningスクリプトと必ず同じ変換にする） */
 const PARTNER_EMAIL_DOMAIN = 'partner.kanoa.local';
 function partnerEmail(code){ return String(code||'').trim().toLowerCase().replace(/[^a-z0-9._-]/g,'') + '@' + PARTNER_EMAIL_DOMAIN; }
@@ -6107,7 +6148,18 @@ function invoicePDF(invId){
     .from{margin-top:50px;font-size:12px;color:#444;line-height:1.8}
     .badge{display:inline-block;padding:3px 10px;border-radius:4px;font-size:11px;font-weight:bold;background:#eef;color:#33c}
     @media print{ body{padding:20px} .noprint{display:none} }
-  </style></head><body>
+  
+/* doc guide styles */
+.doc-guide-card { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px; }
+.doc-guide-icon { width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center; font-size: 11px; font-weight: 700; }
+.doc-guide-icon.sample { background: var(--gray-bg); color: var(--soft); }
+.doc-guide-icon.tmpl { background: var(--accent-soft); color: var(--accent); }
+.doc-guide-content { flex: 1; min-width: 0; }
+.doc-guide-title { font-size: 13px; font-weight: 700; }
+.doc-guide-subtitle { font-weight: 400; color: var(--soft); font-size: 11.5px; }
+.doc-guide-desc { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.doc-guide-action { white-space: nowrap; text-decoration: none; }
+</style></head><body>
     <div class="top">
       <div><h1>${v.kind==='refund'?'返金請求書':'請求書'}</h1><div class="sub">${v.kind==='refund'?'REFUND':'INVOICE'}</div></div>
       <div class="meta"><div><strong>${esc(v.no)}</strong></div>
