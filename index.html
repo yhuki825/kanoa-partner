@@ -8165,14 +8165,13 @@ function renderIntakeForm(agId, partnerName, projList, fixedCompany){
             <select id="ikfArea" class="ikf-input">${areaOptions('')}</select>
           </div>
           <div>
-            <label style="display:block;font-size:12px;font-weight:600;color:var(--ink,#1f3f63);margin-bottom:5px">履歴書・職務経歴書の添付</label>
-            <div id="ikfDropZone" style="border:1.5px dashed var(--line,#e2e8f0);border-radius:10px;padding:16px;text-align:center;cursor:pointer;background:var(--gray-bg,#f8fafc)">
-              <input id="ikfFiles" type="file" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" style="display:none">
-              <div style="font-size:12.5px;color:var(--soft,#64748b)">ここにファイルをドラッグ、またはタップして選択</div>
-              <div style="font-size:11px;color:var(--muted,#94a3b8);margin-top:3px">PDF・Word・画像（複数可）</div>
+            <label style="display:block;font-size:12px;font-weight:600;color:var(--ink,#1f3f63);margin-bottom:5px">応募書類の添付</label>
+            <div style="display:flex;flex-direction:column;gap:10px">
+              ${ikfDocSlot('rireki','履歴書')}
+              ${ikfDocSlot('shoku','職務経歴書')}
             </div>
-            <div id="ikfFileList" style="margin-top:8px;display:flex;flex-direction:column;gap:5px"></div>
             ${docGuideLink('font-size:11.5px;margin-top:8px')}
+            <div style="font-size:11px;color:var(--muted,#94a3b8);margin-top:6px">PDF・Word・画像（各1ファイル・10MBまで）</div>
           </div>
           <div>
             <label style="display:block;font-size:12px;font-weight:600;color:var(--ink,#1f3f63);margin-bottom:5px">補足・備考</label>
@@ -8184,38 +8183,50 @@ function renderIntakeForm(agId, partnerName, projList, fixedCompany){
       </div>
     </div>
   </div>`;
-  window._ikfFiles=[];  // 選択されたファイルの保持
+  window._ikfDocs={rireki:null, shoku:null};  // 種別ごとに1ファイル保持
   setTimeout(()=>{
     const btn=document.getElementById('ikfSubmit');
     if(btn) btn.addEventListener('click', ()=>submitIntakeForm(agId, partnerName));
-    const dz=document.getElementById('ikfDropZone'), fi=document.getElementById('ikfFiles');
-    if(dz&&fi){
-      dz.addEventListener('click', ()=>fi.click());
-      fi.addEventListener('change', e=>ikfAddFiles(e.target.files));
-      dz.addEventListener('dragover', e=>{ e.preventDefault(); dz.style.borderColor='var(--accent,#4f46e5)'; });
-      dz.addEventListener('dragleave', ()=>{ dz.style.borderColor='var(--line,#e2e8f0)'; });
-      dz.addEventListener('drop', e=>{ e.preventDefault(); dz.style.borderColor='var(--line,#e2e8f0)'; ikfAddFiles(e.dataTransfer.files); });
-    }
+    ['rireki','shoku'].forEach(kind=>{
+      const dz=document.getElementById('ikfDrop_'+kind), fi=document.getElementById('ikfFile_'+kind);
+      if(dz&&fi){
+        dz.addEventListener('click', ()=>fi.click());
+        fi.addEventListener('change', e=>{ ikfSetFile(kind, e.target.files&&e.target.files[0]); e.target.value=''; });
+        dz.addEventListener('dragover', e=>{ e.preventDefault(); dz.style.borderColor='var(--accent,#4f46e5)'; });
+        dz.addEventListener('dragleave', ()=>{ dz.style.borderColor='var(--line,#e2e8f0)'; });
+        dz.addEventListener('drop', e=>{ e.preventDefault(); dz.style.borderColor='var(--line,#e2e8f0)'; ikfSetFile(kind, e.dataTransfer.files&&e.dataTransfer.files[0]); });
+      }
+    });
   }, 30);
 }
-function ikfAddFiles(fileList){
-  const arr=Array.from(fileList||[]);
-  for(const f of arr){
-    if(f.size>10*1048576){ const el=document.getElementById('ikfError'); if(el) el.textContent=`${f.name} は10MBを超えています。`; continue; }
-    window._ikfFiles.push(f);
-  }
-  ikfRenderFileList();
+/* 履歴書/職務経歴書それぞれの添付スロット */
+function ikfDocSlot(kind, label){
+  return `<div>
+    <div style="font-size:11.5px;font-weight:600;color:var(--soft,#64748b);margin-bottom:4px">${esc(label)}</div>
+    <div id="ikfDrop_${kind}" style="border:1.5px dashed var(--line,#e2e8f0);border-radius:10px;padding:13px;text-align:center;cursor:pointer;background:var(--gray-bg,#f8fafc)">
+      <input id="ikfFile_${kind}" type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" style="display:none">
+      <div style="font-size:12px;color:var(--soft,#64748b)">タップして選択、またはドラッグ</div>
+    </div>
+    <div id="ikfName_${kind}" style="margin-top:6px"></div>
+  </div>`;
 }
-function ikfRenderFileList(){
-  const box=document.getElementById('ikfFileList'); if(!box) return;
-  box.innerHTML=(window._ikfFiles||[]).map((f,idx)=>
-    `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;background:var(--surface,#fff);border:1px solid var(--line,#e2e8f0);border-radius:7px;font-size:12px">
+function ikfSetFile(kind, f){
+  const err=document.getElementById('ikfError');
+  if(!f) return;
+  if(f.size>10*1048576){ if(err) err.textContent=`${f.name} は10MBを超えています。`; return; }
+  if(err) err.textContent='';
+  window._ikfDocs[kind]=f;
+  ikfRenderSlot(kind);
+}
+function ikfRenderSlot(kind){
+  const box=document.getElementById('ikfName_'+kind); if(!box) return;
+  const f=window._ikfDocs[kind];
+  box.innerHTML = f ? `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;background:var(--surface,#fff);border:1px solid var(--line,#e2e8f0);border-radius:7px;font-size:12px">
       <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📄 ${esc(f.name)}</span>
-      <button type="button" data-ikf-rm="${idx}" style="border:none;background:none;color:var(--muted,#94a3b8);cursor:pointer;font-size:15px;line-height:1">×</button>
-    </div>`).join('');
-  box.querySelectorAll('[data-ikf-rm]').forEach(b=>b.addEventListener('click', e=>{
-    window._ikfFiles.splice(+e.target.dataset.ikfRm,1); ikfRenderFileList();
-  }));
+      <button type="button" data-ikf-rm="${kind}" style="border:none;background:none;color:var(--muted,#94a3b8);cursor:pointer;font-size:15px;line-height:1">×</button>
+    </div>` : '';
+  const rm=box.querySelector('[data-ikf-rm]');
+  if(rm) rm.addEventListener('click', ()=>{ window._ikfDocs[kind]=null; ikfRenderSlot(kind); });
 }
 
 function ikField(label, id, type, ph, required){
@@ -8252,24 +8263,23 @@ async function submitIntakeForm(agId, partnerName){
   const btn=document.getElementById('ikfSubmit');
   if(btn){ btn.disabled=true; btn.textContent='送信中…'; }
   const ikId='IK-'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-  const files=(window._ikfFiles||[]).slice();
+  // 履歴書・職務経歴書をそれぞれの種別付きで集める（選択されたものだけ）
+  const slots=[['rireki', (window._ikfDocs||{}).rireki], ['shoku', (window._ikfDocs||{}).shoku]].filter(s=>s[1]);
   const docs=[];
   try{
-    // 添付ファイルを先にアップロード（intake IDに紐付けて保存）
-    if(files.length){
+    if(slots.length){
       if(!DEMO_MODE){
         const sb=await SUPA.ensureClient();
-        for(const f of files){
+        for(const [kind,f] of slots){
           const did=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():('D'+Math.random().toString(36).slice(2,9));
           const ext=(/\.[A-Za-z0-9]+$/.exec(f.name)||[''])[0];
           const path=`intake/${ikId}/${did}${ext}`;
           const up=await sb.storage.from('candidate-docs').upload(path, f, {contentType:f.type||'application/octet-stream', upsert:false});
-          if(up.error) throw up.error;
-          docs.push({ id:did, name:f.name, size:f.size, type:f.type, kind:inferFormDocKind(f.name), path, uploaded:nowTS() });
+          if(up.error) throw new Error('DOC_UPLOAD: '+(up.error.message||up.error));
+          docs.push({ id:did, name:f.name, size:f.size, type:f.type, kind, path, uploaded:nowTS() });
         }
       } else {
-        // デモ：ファイル名のみ記録
-        for(const f of files){ docs.push({ id:'D'+Math.random().toString(36).slice(2,9), name:f.name, size:f.size, type:f.type, kind:inferFormDocKind(f.name), path:'(demo)', uploaded:nowTS() }); }
+        for(const [kind,f] of slots){ docs.push({ id:'D'+Math.random().toString(36).slice(2,9), name:f.name, size:f.size, type:f.type, kind, path:'(demo)', uploaded:nowTS() }); }
       }
     }
     const selPj=val('ikfProject')||null;
@@ -8282,16 +8292,24 @@ async function submitIntakeForm(agId, partnerName){
     if(!DEMO_MODE){
       const sb=await SUPA.ensureClient();
       const { error }=await sb.from('intake').insert(rec);
-      if(error) throw error;
+      if(error) throw new Error('INTAKE_INSERT: '+(error.message||JSON.stringify(error)));
     } else {
       DB.intake=DB.intake||[];
       DB.intake.unshift({ id:ikId, ag:agId, pj:selPj||'', name, kana:rec.kana||'', phone:rec.phone||'', email:rec.email||'', address:'', area:rec.area||'', src:company, company, note:rec.note||'', docs, source_type:'form', created:nowTS() });
       try{ persist(DB); }catch(e){}
     }
-    window._ikfFiles=[];
+    window._ikfDocs={rireki:null, shoku:null};
     intakeFormDone(partnerName);
   }catch(e){
-    if(err) err.textContent='送信に失敗しました。この求職者は既にご紹介いただいているか、ファイル形式やサイズをご確認のうえ、再度お試しください。';
+    const msg=(e&&e.message)||String(e);
+    // 重複（電話・メール等）はユーザー向けの言い回しに、それ以外は実際の原因を出して切り分け可能にする
+    if(/duplicate|unique|already exists/i.test(msg)){
+      if(err) err.textContent='この求職者は既にご紹介いただいているようです。内容をご確認ください。';
+    } else if(/DOC_UPLOAD/.test(msg)){
+      if(err) err.textContent='書類のアップロードに失敗しました。ファイル形式・サイズをご確認のうえ再度お試しください。（'+msg.replace('DOC_UPLOAD: ','')+'）';
+    } else {
+      if(err) err.textContent='送信に失敗しました：'+msg;
+    }
     if(btn){ btn.disabled=false; btn.textContent='この内容で紹介する'; }
   }
 }
