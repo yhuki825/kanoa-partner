@@ -2479,6 +2479,9 @@ const NAV_RECORE = [
 function hideBootSplash(){ try{ var s=document.getElementById('bootSplash'); if(s) s.style.display='none'; }catch(e){} }
 function enterApp(){
   hideBootSplash();
+  // ログインごとに、会社固有のビューキャッシュを必ず作り直す（前のログインの残留を防ぐ）。
+  // ※DBはこの直前のloadAll()で読み込み済みなのでここでは触らない。
+  _subPartnerCache=null; _subPartnerLoading=false; _openSubPartner=null; _formShareProjs=null;
   if(window._loginAnim) window._loginAnim.stop();
   // パートナー系ログイン（パスワード認証はSupabase Authセッションを持たない）を
   // ブラウザに保存し、リロードしてもログイン状態を保てるようにする。
@@ -5279,8 +5282,8 @@ document.addEventListener('click', e=>{
       save(); loginTab='agency'; renderLogin();
       toast('申請を送信しました。承認をお待ちください'); break;
     }
-    case 'logout': stopAutoRefresh(); try{ localStorage.removeItem('kanoa_partner_session'); }catch(e){} if(!DEMO_MODE) SUPA.signOut(); S={role:null,agencyId:null,view:null}; document.getElementById('app').classList.remove('on'); document.getElementById('loginWrap').style.display='flex'; loginTab='agency'; renderLogin(); if(window._loginAnim) window._loginAnim.start(); break;
-    case 'switch-account': stopAutoRefresh(); if(!DEMO_MODE) SUPA.signOut(); S={role:null,agencyId:null,view:null}; document.getElementById('app').classList.remove('on'); document.getElementById('loginWrap').style.display='flex'; loginTab='agency'; renderLogin(); if(window._loginAnim) window._loginAnim.start(); toast('ログアウトしました。別のアカウントでログインできます'); break;
+    case 'logout': stopAutoRefresh(); try{ localStorage.removeItem('kanoa_partner_session'); }catch(e){} if(!DEMO_MODE) SUPA.signOut(); resetSessionCaches(); S={role:null,agencyId:null,view:null}; document.getElementById('app').classList.remove('on'); document.getElementById('loginWrap').style.display='flex'; loginTab='agency'; renderLogin(); if(window._loginAnim) window._loginAnim.start(); break;
+    case 'switch-account': stopAutoRefresh(); if(!DEMO_MODE) SUPA.signOut(); resetSessionCaches(); S={role:null,agencyId:null,view:null}; document.getElementById('app').classList.remove('on'); document.getElementById('loginWrap').style.display='flex'; loginTab='agency'; renderLogin(); if(window._loginAnim) window._loginAnim.start(); toast('ログアウトしました。別のアカウントでログインできます'); break;
     case 'reset-demo': if(confirm('デモデータを初期状態に戻しますか？（追加した案件・送客・パートナーは消えます）')){ try{localStorage.removeItem(LS_KEY);}catch(e){} location.reload(); } break;
     case 'impl-guide': modalImplGuide(); break;
     case 'nav': if(t.dataset.view==='messages'){ S.threadAg=null; S.threadRef=null; S.threadPrefill=null; msgFilter.q=''; } go(t.dataset.view); break;
@@ -8364,6 +8367,18 @@ async function doSubPartnerAdd(){
    フォーム発行のプルダウンと、一覧画面の「登録情報（担当者・メモ）」表示に使う。 */
 let _subPartnerCache=null;
 let _subPartnerLoading=false;
+/* ログアウト/アカウント切替時に、会社固有のクライアントキャッシュを全消去する。
+   これを怠ると、同一ブラウザでA社→B社へ切り替えた際に前社のデータ（特に二次パートナー一覧）が
+   残って表示され、「他社の情報が見える」不具合になる。 */
+function resetSessionCaches(){
+  _subPartnerCache=null;
+  _subPartnerLoading=false;
+  _openSubPartner=null;
+  _formShareProjs=null;
+  _tkEditDraft=null;
+  _tkToken=''; _tkPw=''; _tkRows=[]; _tkTab='all'; _tkCompany='';
+  try{ DB = {agencies:[],projects:[],assignments:[],referrals:[],messages:[],tasks:[],members:[],activity:[],invoices:[],reflog:[],intake:[],subaccounts:[],logins:[]}; }catch(e){}
+}
 async function loadSubPartners(force){
   if(force) _subPartnerCache=null;
   if(_subPartnerCache) return _subPartnerCache;
@@ -8608,8 +8623,10 @@ function subPartnersOf(ag){
   const map = new Map();  // 会社名 -> { name, refs:[], pending:[], info }
   const norm = s => (s||'').trim();
   const blank = key => ({name:key, refs:[], pending:[], info:null});
-  // 登録済みの二次パートナー（送客0でも一覧に出す＝編集できるようにするため）
-  if(ag===S.agencyId){
+  // 登録済みの二次パートナー（送客0でも一覧に出す＝編集できるようにするため）。
+  // キャッシュは「今ログイン中の一次パートナー自身」のものだけ。KANOAの俯瞰ループ（allSubPartners）で
+  // 各社を回すときに混入させないため、role が agency かつ自社IDのときに限定する。
+  if(S.role==='agency' && ag===S.agencyId){
     (_subPartnerCache||[]).forEach(s=>{
       const key = norm(s.company);
       if(!key) return;
