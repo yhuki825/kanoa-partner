@@ -1251,8 +1251,8 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     });
     if(error){
       const m=(error.message||'');
-      if(/DUPLICATE_COMPANY/.test(m)) return {error:'同じ会社名の二次パートナーが既に登録されています'};
-      if(/NOT_FOUND/.test(m))         return {error:'対象の二次パートナーが見つかりません'};
+      if(/DUPLICATE_COMPANY/.test(m)) return {error:'同じ会社名のパートナーが既に登録されています'};
+      if(/NOT_FOUND/.test(m))         return {error:'対象のパートナーが見つかりません'};
       if(/NOT_A_PARTNER/.test(m))     return {error:'この操作の権限がありません'};
       if(/EMPTY_NAME/.test(m))        return {error:'会社名を入力してください'};
       return {error:m||'更新に失敗しました'};
@@ -1290,7 +1290,7 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     if(error){
       const m=(error.message||'');
       if(/PW_TOO_SHORT/.test(m))  return {error:'パスワードは4文字以上にしてください'};
-      if(/NOT_FOUND/.test(m))     return {error:'対象の二次パートナーが見つかりません'};
+      if(/NOT_FOUND/.test(m))     return {error:'対象のパートナーが見つかりません'};
       if(/NOT_A_PARTNER/.test(m)) return {error:'この操作の権限がありません'};
       return {error:m||'変更に失敗しました'};
     }
@@ -2449,7 +2449,7 @@ const NAV_RECORE = [
     {v:'agencies', label:'パートナー',     icon:'<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>'},
     {v:'referrals',label:'送客',       icon:'<path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/>'},
     {v:'intake',   label:'パートナー連携', icon:'<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>'},
-    {v:'subpartners', label:'二次パートナー', icon:'<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>'},
+    {v:'subpartners', label:'パートナー', icon:'<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>'},
     {v:'earnings', label:'成果・報酬', icon:'<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>'},
     {v:'finance',  label:'収支',       icon:'<path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/>'},
     {v:'kanoarecore', label:'RECORE残高', icon:'<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3v4M8 3v4M2 11h20"/>'},
@@ -7904,7 +7904,7 @@ function intakeByStatus(st){
 }
 /* 受信箱ビュー */
 function viewIntake(){
-  setHeader('パートナー連携', '代理店・二次パートナーから届いた応募を確認し、選考会に進めるか選びます',
+  setHeader('パートナー連携', '代理店・パートナーから届いた応募を確認し、選考会に進めるか選びます',
     S.role==='agency'
       ? `<button class="btn btn-primary btn-sm" data-act="form-share" style="margin-right:8px">紹介フォームを発行</button><button class="btn btn-ghost btn-sm" data-act="intake-import" style="margin-right:8px">CSV取込</button>`
       : '');
@@ -8320,7 +8320,7 @@ let _formShareProjs = null;  // フォームに公開する案件（Set of pjId�
 function openSubPartnerAdd(){
   if(DEMO_MODE){ toast('デモモードでは登録できません'); return; }
   showModal(`
-    <div class="modal-title">二次パートナーを登録</div>
+    <div class="modal-title">パートナーを登録</div>
     <div class="modal-sub">登録した会社は、<b>紹介フォームの発行時に選べる</b>ようになります。会社名はここで登録したものが使われるため、表記のゆれが起きません。</div>
     <div class="field full">
       <label>会社名 <span style="color:var(--r)">*</span></label>
@@ -8416,14 +8416,14 @@ function renderFormShareModal(){
     <div class="modal-title">紹介フォームを発行</div>
     <div class="modal-sub">パートナーに見せる案件を選び、URLを共有してください。選んだ案件だけがフォームに表示されます。</div>
     <div class="field full">
-      <label>紹介先の二次パートナー</label>
+      <label>紹介先のパートナー</label>
       ${subs.length
         ? `<select id="fshareSub">
              <option value="">選択してください</option>${subOpts}
            </select>
            <div class="cell-sub" style="font-size:11px;margin-top:3px">選ぶと、フォームの「貴社名」に自動で入ります（相手は入力不要）。</div>`
         : `<div class="cell-sub" style="font-size:12px;padding:9px 11px;border:1px dashed var(--line);border-radius:8px">
-             まだ二次パートナーが登録されていません。先に「二次パートナーを登録」してください。
+             まだパートナーが登録されていません。先に「パートナーを登録」してください。
            </div>`}
     </div>
     <div class="field full">
@@ -8438,7 +8438,7 @@ function renderFormShareModal(){
              <button class="btn btn-primary btn-sm" data-act="copy-form-url">コピー</button>
            </div>`
         : `<div class="cell-sub" style="font-size:12px;padding:10px 11px;border:1px dashed var(--line);border-radius:8px;background:var(--gray-bg)">
-             上で二次パートナーを選ぶと、その会社専用のURLが表示されます。
+             上でパートナーを選ぶと、その会社専用のURLが表示されます。
            </div>`}
     </div>
     <div class="panel" style="padding:11px 13px;margin-top:10px;background:var(--gray-bg)">
@@ -8736,7 +8736,7 @@ function openSubPartnerEdit(company){
     // フォーム経由で送客だけ届いた（＝未登録の）会社名。まず登録が必要。
     showModal(`
       <div class="modal-title">${esc(name)}</div>
-      <div class="modal-sub">この会社は<b>まだ二次パートナーとして登録されていません</b>（フォーム/CSVの会社名から自動でリスト化されています）。「二次パートナーを登録」で同じ会社名を登録すると、担当者情報の編集ができるようになります。</div>
+      <div class="modal-sub">この会社は<b>まだパートナーとして登録されていません</b>（フォーム/CSVの会社名から自動でリスト化されています）。「パートナーを登録」で同じ会社名を登録すると、担当者情報の編集ができるようになります。</div>
       <div class="modal-actions">
         <button class="btn btn-ghost" data-act="closemodal">閉じる</button>
         <button class="btn btn-primary" data-act="subpartner-add">登録する</button>
@@ -8746,7 +8746,7 @@ function openSubPartnerEdit(company){
   const sp  = subPartnersOf(S.agencyId).find(x=>x.name===name) || {total:0, pendingCount:0};
   const cnt = (sp.total||0) + (sp.pendingCount||0);
   showModal(`
-    <div class="modal-title">二次パートナーを編集</div>
+    <div class="modal-title">パートナーを編集</div>
     <div class="modal-sub">${esc(name)} さまの登録情報を変更します。</div>
     <div class="field full">
       <label>会社名 <span style="color:var(--r)">*</span></label>
@@ -8805,8 +8805,8 @@ async function doSubPartnerEditSave(oldCompany){
 function viewSubPartners(){
   const isK = S.role==='kanoa';
   if(!isK) ensureSubPartners();   // 登録情報（担当者・メモ）を裏で取得
-  setHeader(isK?'二次パートナー':'パートナー', isK?'一次パートナーの下にいる二次パートナーと送客状況を一覧で確認できます':'代理店パートナーごとに、紹介された方の進捗・書類の不足・提出を管理できます',
-    isK?'':'<button class="btn btn-ghost btn-sm" data-act="subpartner-add" style="margin-right:8px">二次パートナーを登録</button><button class="btn btn-primary btn-sm" data-act="form-share">紹介フォームを発行</button>');
+  setHeader(isK?'パートナー':'パートナー', isK?'一次パートナーの下にいるパートナーと送客状況を一覧で確認できます':'代理店パートナーごとに、紹介された方の進捗・書類の不足・提出を管理できます',
+    isK?'':'<button class="btn btn-ghost btn-sm" data-act="subpartner-add" style="margin-right:8px">パートナーを登録</button><button class="btn btn-primary btn-sm" data-act="form-share">紹介フォームを発行</button>');
   const c=document.getElementById('content');
 
   const list = isK ? allSubPartners() : subPartnersOf(S.agencyId);
@@ -8851,12 +8851,12 @@ function viewSubPartners(){
         </div>
         ${subCards}
       </div>`;
-    }).join('') || '<div class="cell-sub" style="text-align:center;padding:30px">二次パートナーはまだいません</div>';
+    }).join('') || '<div class="cell-sub" style="text-align:center;padding:30px">パートナーはまだいません</div>';
   }
 
   c.innerHTML=`<div class="content-narrow">
     <div class="kpi-grid" style="margin-bottom:16px">
-      ${kpi(isK?'二次パートナー':'パートナー', totalSub+'<span class="unit">社</span>','var(--accent)')}
+      ${kpi(isK?'パートナー':'パートナー', totalSub+'<span class="unit">社</span>','var(--accent)')}
       ${kpi('送客（累計）', totalRefs+'<span class="unit">名</span>','var(--b)')}
       ${kpi('未確認', totalPending+'<span class="unit">名</span>', totalPending?'var(--a)':'var(--muted)')}
     </div>
