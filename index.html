@@ -1536,6 +1536,7 @@ const uid = p => p + '-' + Math.random().toString(36).slice(2,7);
 const todayISO = () => TZ_toLocalDay(new Date());
 function joinedYM(r){ if(!r||!r.joined) return ''; const p=r.joined.slice(0,7).split('-'); return p.length===2?`${p[0]}年${Number(p[1])}月`:''; }
 function joinedM(r){ if(!r||!r.joined) return '—'; const m=Number(r.joined.slice(5,7)); return m?m+'月':'—'; }
+function joinedYMD(r){ if(!r||!r.joined) return ''; const p=r.joined.slice(0,10).split('-'); return p.length===3&&p[2]?`${p[0]}年${Number(p[1])}月${Number(p[2])}日`:joinedYM(r); }
 /* ── 時刻の共通処理 ──────────────────────────────
    DBには常にUTCで保存される。表示は「見る人の端末の時間帯」に変換する（Slack/LINEと同じ）。
    TZ_toLocal: UTC文字列 → 端末時刻の 'YYYY-MM-DD HH:MM'
@@ -4581,7 +4582,7 @@ function openRefDrawer(id){
   curRef=id;
   const a=agency(r.ag), p=project(r.pj);
   const d=document.getElementById('drawer');
-  const chips=`<div class="dr-chips">${statusBadge(r.status)}<span class="tag">${esc(a?a.name:r.ag)}</span>${r.joined?`<span class="chip-joined"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>入社 ${joinedYM(r)}</span>`:''}</div>`;
+  const chips=`<div class="dr-chips">${statusBadge(r.status)}<span class="tag">${esc(a?a.name:r.ag)}</span>${r.joined?`<span class="chip-joined"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>入社 ${joinedYMD(r)}</span>`:''}</div>`;
 
   if(S.role==='kanoa'){
     // FULL EDIT FORM
@@ -4598,7 +4599,7 @@ function openRefDrawer(id){
         ${stepBar(r)}
         ${checksBlock(r)}
         <div class="dr-readout">
-          <div><div class="l">入社月</div><div class="v" style="color:${r.joined?'var(--g)':'var(--faint)'}">${r.joined?joinedYM(r):'未定'}</div></div>
+          <div><div class="l">入社日</div><div class="v" style="color:${r.joined?'var(--g)':'var(--faint)'}">${r.joined?joinedYMD(r):'未定'}</div></div>
           ${S.role!=='sub'?`<div><div class="l">成果報酬</div><div class="v">${refEarning(r)?yen(refEarning(r)):(successRewardFor(r)?yen(successRewardFor(r))+'（見込）':'—')}</div></div>`:''}
         </div>
         ${rewardBreakdown(r,false)}
@@ -4606,7 +4607,7 @@ function openRefDrawer(id){
         <div class="dt-block-title">ステータス・入社</div>
         <div class="dr-form">
           <div class="field"><label>ステータス</label><select id="dr_status">${STATUS_ORDER.map(k=>`<option value="${k}" ${k===r.status?'selected':''}>${STATUS[k].label}</option>`).join('')}</select></div>
-          <div class="field"><label>入社月<span style="font-weight:400;color:var(--muted);font-size:11px"> （空にすると未定）</span></label><input type="month" id="dr_joined" value="${r.joined?esc(r.joined.slice(0,7)):''}"></div>
+          <div class="field"><label>入社日<span style="font-weight:400;color:var(--muted);font-size:11px"> （空にすると未定）</span></label><input type="date" id="dr_joined" value="${r.joined?esc(r.joined.slice(0,10)):''}"></div>
           <div class="field"><label>選考会日${S.role==='kanoa'?`<button class="btn btn-ghost btn-sm" style="padding:1px 8px;font-size:10.5px;margin-left:8px;vertical-align:1px" data-act="share-session" data-id="${r.id}">パートナーに連絡</button>`:''}</label><input id="dr_session" value="${r.session==='—'?'':esc(r.session)}" placeholder="7/18 14:00 など"></div>
           <div class="field"><label>希望エリア</label><select id="dr_area">${areaOptions(r.area||'')}</select></div>
         </div>
@@ -4695,7 +4696,7 @@ function openRefDrawer(id){
                   <input id="src_inline_${r.id}" value="${esc(r.src||'')}" placeholder="例：自社サイト / 紹介 など" style="flex:1;max-width:200px;padding:5px 9px;border:1px solid var(--line);border-radius:7px;font-size:12.5px" onkeydown="if(event.key==='Enter')event.target.nextElementSibling.click()">
                   <button class="btn btn-ghost btn-sm" data-act="save-src" data-ref="${r.id}">保存</button>
                 </span></div>`}
-        ${row('入社月',r.joined?joinedYM(r):'未定')}
+        ${row('入社日',r.joined?joinedYMD(r):'未定')}
         ${row('成果報酬',refEarning(r)?yen(refEarning(r)):'—')}
       </div>
       ${(r.status==='joined' && isRakutenProject(r.pj)) ? `
@@ -4735,12 +4736,11 @@ function saveRefEdit(id){
   if(block && newStatus!==r.status){ toast(block); return; }
   r.status=newStatus;
   r.session=val('dr_session')||'—';
-  // 入社月：入力欄で選んだ月を常に優先。空にすれば「未定」へ戻せる。
-  const ym=document.getElementById('dr_joined').value;
-  const prevStatus=r.status; // statusは上で更新済みのため、変更前は newStatus 判定で扱う
-  r.joined = ym ? `${ym}-01` : '';
-  // 新たに「入社」へ切り替えた時だけ、未入力なら当月を補完（編集の手間を省く）
-  if(newStatus==='joined' && r.status!=='joined' && !r.joined){ r.joined=todayISO(); }
+  // 入社日：入力欄で選んだ日付（YYYY-MM-DD）を常に優先。空にすれば「未定」へ戻せる。
+  const jd=document.getElementById('dr_joined').value;
+  r.joined = jd || '';
+  // 「入社」ステータスなのに入社日が未入力なら、当日を補完（編集の手間を省く）
+  if(newStatus==='joined' && !r.joined){ r.joined=todayISO(); }
   r.pj=document.getElementById('dr_pj').value;
   r.ag=document.getElementById('dr_ag').value;
   const note=document.getElementById('dr_note'); if(note) r.note=note.value.trim();
