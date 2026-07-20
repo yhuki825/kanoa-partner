@@ -1789,9 +1789,18 @@ function docSlot(r, kind, label, hint){
 function docsSection(r){
   const reqIv=stageReq(r.pj,'interview'); const reqOf=stageReq(r.pj,'offer');
   const offerStage = r.status==='offer' || r.status==='joined';
-  // 内定後の必要書類スロット（楽天など offer 書類がある案件のみ）
-  const offerSlots = (offerStage && reqOf) ? (reqOf.required||[]).map(k=>docSlot(r,k,k)).join('') + (reqOf.optional||[]).map(k=>docSlot(r,k,k+'（任意）')).join('') : '';
-  const otherDocs=(r.docs||[]).filter(d=>!['履歴書','職務経歴書','源泉徴収票','給与明細','賞与明細'].includes(docKind(d)));
+  const OFFER_KINDS=['源泉徴収票','給与明細','賞与明細'];
+  const set=docSet(r);
+  // 内定後の必要書類スロット：案件設定の必須/任意に加え、
+  // 二次パートナー等が実際にアップロードした内定後書類（内定承諾資料）も、案件未設定でも必ずスロット表示する。
+  const reqK=(offerStage&&reqOf)?(reqOf.required||[]):[];
+  const optK=(offerStage&&reqOf)?(reqOf.optional||[]):[];
+  const extraK=OFFER_KINDS.filter(k=>set.has(k)&&!reqK.includes(k)&&!optK.includes(k));
+  const offerSlots = reqK.map(k=>docSlot(r,k,k)).join('')
+    + optK.map(k=>docSlot(r,k,k+'（任意）')).join('')
+    + extraK.map(k=>docSlot(r,k,k)).join('');
+  const shownOffer=[...reqK,...optK,...extraK];
+  const otherDocs=(r.docs||[]).filter(d=>!['履歴書','職務経歴書',...shownOffer].includes(docKind(d)));
   return `<div class="dt-block-title">提案資料（選考会に必要）</div>
     <div class="doc-slots">
       ${docSlot(r,'履歴書','履歴書','顔写真付き推奨')}
@@ -9456,6 +9465,10 @@ function tkDocStat(r){
   return {
     rireki: has('rireki','履歴書', /履歴|rireki|resume/),
     shoku:  has('shoku','職務経歴書', /職務|職歴|career|cv|shokumu/),
+    // 内定承諾資料（種別は固定：1=源泉徴収票 / 2=給与明細 / 3=賞与明細）
+    gensen: has('gensen','源泉徴収票', /源泉|徴収|gensen|withholding/),
+    kyuyo:  has('kyuyo','給与明細', /給与|給料|payslip|salary|kyuyo/),
+    shoyo:  has('shoyo','賞与明細', /賞与|ボーナス|bonus|shoyo/),
     n:(r.docs||[]).length
   };
 }
@@ -9581,6 +9594,15 @@ function openTrackerEdit(id, draft){
       </div>
       <div class="cell-sub" style="font-size:11px;margin-top:5px">PDF / Word / Excel / 画像（1ファイル25MBまで）</div>
     </div>
+    ${r.kind==='referral'?`
+    <div class="field full" style="margin-top:10px">
+      <label>内定承諾資料</label>
+      <div class="cell-sub" style="font-size:11px;margin-bottom:6px">内定承諾にあたって必要な書類です。以下の3点をアップロードいただけます。</div>
+      ${docChip(s.gensen,'内定承諾資料1','gensen')}
+      ${docChip(s.kyuyo,'内定承諾資料2','kyuyo')}
+      ${docChip(s.shoyo,'内定承諾資料3','shoyo')}
+      <div class="cell-sub" style="font-size:11px;margin-top:5px">PDF / Word / Excel / 画像（1ファイル25MBまで）</div>
+    </div>`:''}
 
     <div id="tkeErr" style="color:var(--r);font-size:12px;min-height:16px"></div>
     <div class="modal-actions">
@@ -9611,10 +9633,13 @@ async function doTrackerEditSave(id){
 async function doTrackerUpload(id, docCode, file){
   const r=tkRow(id); if(!r||!file) return;
   if(file.size>25*1048576){ toast('ファイルは25MBまでです'); return; }
+  // 内定承諾資料は枠ごとに種別を固定して保存する（表示は「内定承諾資料N」でも、KANOA側では正しく分類される）
+  const OFFER_KIND={gensen:'源泉徴収票', kyuyo:'給与明細', shoyo:'賞与明細'};
   // 送客済みは日本語ラベル、フォーム登録は 'rireki'/'shoku' で保存する
-  const kind = (r.kind==='referral')
-    ? (docCode==='rireki'?'履歴書':docCode==='shoku'?'職務経歴書':'その他')
-    : docCode;
+  const kind = OFFER_KIND[docCode]
+    || ((r.kind==='referral')
+        ? (docCode==='rireki'?'履歴書':docCode==='shoku'?'職務経歴書':'その他')
+        : docCode);
   toast('アップロード中…');
   const res=await SUPA.trackerAddDoc(_tkToken, _tkPw, r.kind, r.id, file, kind);
   if(res.error){ toast('アップロードに失敗しました：'+res.error); return; }
