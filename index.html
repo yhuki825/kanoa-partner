@@ -643,13 +643,11 @@ select.icell.stsel{font-weight:600;border:1px solid var(--line-2);background:var
 .pipe-step{flex:1;position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 2px 5px;border-radius:7px;font-size:10.5px;font-weight:600;color:var(--faint);cursor:default;transition:all .14s;text-align:center}
 .cmd-pipe.editable .pipe-step{cursor:pointer}
 .cmd-pipe.editable .pipe-step:hover{background:var(--accent-soft);color:var(--accent-ink)}
-.pipe-step .pdot{width:13px;height:13px;border-radius:50%;border:2px solid var(--line-2);background:var(--surface);display:grid;place-items:center;transition:all .14s}
-.pipe-step.done{color:var(--ink-soft)}
-.pipe-step.done .pdot{background:var(--accent);border-color:var(--accent)}
-.pipe-step.done .pdot svg{width:8px;height:8px;stroke:#fff;stroke-width:3.5}
+.pipe-step .pmark{width:16px;height:16px;display:grid;place-items:center;font-size:14px;line-height:1;font-weight:700;color:var(--line-2);transition:all .14s}
+.pipe-step.passed{color:var(--ink-soft)}
+.pipe-step.passed .pmark{color:var(--accent)}
 .pipe-step.cur{color:var(--accent-ink)}
-.pipe-step.cur .pdot{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
-.pipe-step.cur .pdot i{width:5px;height:5px;border-radius:50%;background:var(--accent);display:block}
+.pipe-step.cur .pmark{font-size:16px;text-shadow:0 0 0 var(--accent)}
 .pipe-line{width:8px;height:2px;background:var(--line-2);flex-shrink:0}
 .pipe-line.done{background:var(--accent)}
 /* facts row */
@@ -3723,12 +3721,12 @@ function pipelineStepper(r, viewer){
   const curIdx = stages.indexOf(r.status);
   let h = `<div class="cmd-pipe ${editable?'editable':''}">`;
   stages.forEach((s,i)=>{
-    const done = curIdx>i;
     const cur = curIdx===i;
+    const passed = curIdx>=i;   // 通過（現在地を含む到達済み）= ○ / 未通過 = ✕
     if(i>0) h += `<span class="pipe-line ${curIdx>=i?'done':''}"></span>`;
     const tap = editable ? `data-act="set-ref-status" data-ref="${r.id}" data-s="${s}"` : '';
-    h += `<div class="pipe-step ${done?'done':''} ${cur?'cur':''}" ${tap} title="${STATUS[s].label}に変更">
-      <span class="pdot">${done?'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"/></svg>':(cur?'<i></i>':'')}</span>
+    h += `<div class="pipe-step ${passed?'passed':'unpassed'} ${cur?'cur':''}" ${tap} title="${STATUS[s].label}に変更">
+      <span class="pmark">${passed?'○':'✕'}</span>
       <span>${STATUS[s].label}</span>
     </div>`;
   });
