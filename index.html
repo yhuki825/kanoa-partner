@@ -89,6 +89,10 @@ a{color:inherit}
 .field label{display:block;font-size:12px;font-weight:600;color:var(--ink-soft);margin-bottom:6px}
 .field input,.field select,.field textarea{width:100%;padding:10px 12px;border:1px solid var(--line-2);border-radius:var(--r-sm);background:var(--surface);color:var(--ink);outline:none;transition:border-color .15s,box-shadow .15s}
 .field input:focus,.field select:focus,.field textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+/* メールアドレス形式チェック */
+input.email-invalid{border-color:var(--r)!important;box-shadow:0 0 0 3px var(--r-bg)!important}
+.email-hint{color:var(--r);font-size:11px;font-weight:600;margin-top:5px;display:flex;align-items:flex-start;gap:4px;line-height:1.4}
+.email-hint svg{width:13px;height:13px;flex-shrink:0;margin-top:1px}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:10px 16px;border:1px solid transparent;border-radius:var(--r-sm);font-size:13px;font-weight:600;transition:all .15s var(--ease);white-space:nowrap}
 .btn-primary{background:var(--accent);color:#fff}
 .btn-primary:hover{background:var(--accent-ink);transform:translateY(-1px)}
@@ -4081,7 +4085,8 @@ function modalAddAccount(){
 function saveNewAccount(){
   const name=(val('aaName')||'').trim(), contact=(val('aaContact')||'').trim(), email=(val('aaEmail')||'').trim(), pw=(val('aaPw')||'').trim();
   if(!name){ toast('会社名を入力してください'); return; }
-  if(!email||!/.+@.+\..+/.test(email)){ toast('メールアドレスを入力してください'); return; }
+  if(!email){ toast('メールアドレスを入力してください'); return; }
+  if(!isEmail(email)){ toast('メールアドレスの形式をご確認ください'); return; }
   if(!pw||pw.length<4){ toast('4文字以上のパスワードを入力してください'); return; }
   let n=DB.agencies.length, nid; do{ nid='AG-'+String(n).padStart(2,'0'); n++; }while(DB.agencies.some(a=>a.id===nid));
   DB.agencies.push({id:nid, code:'', name, contact, email, status:'active', source:'manual', joined:todayISO(), pw});
@@ -4111,7 +4116,7 @@ function modalChangeEmail(agId){
 function saveAccountEmail(agId){
   const a=agency(agId); if(!a) return;
   const email=(val('newEmailInput')||'').trim();
-  if(email&&!/.+@.+\..+/.test(email)){ toast('正しいメールアドレスを入力してください'); return; }
+  if(email&&!isEmail(email)){ toast('メールアドレスの形式をご確認ください'); return; }
   a.email=email; save(); closeModal(); toast('メールアドレスを更新しました'); viewAccounts();
 }
 function viewLoginLogs(){
@@ -4616,7 +4621,7 @@ function openRefDrawer(id){
           <div class="field full"><label>氏名</label><input id="dr_name" value="${esc(r.name||'')}"></div>
           <div class="field full"><label>フリガナ</label><input id="dr_kana" value="${esc(r.kana||'')}"></div>
           <div class="field"><label>電話</label><input id="dr_phone" value="${esc(r.phone||'')}"></div>
-          <div class="field"><label>メール</label><input id="dr_email" value="${esc(r.email||'')}"></div>
+          <div class="field"><label>メール</label><input id="dr_email" type="email" value="${esc(r.email||'')}"></div>
           <div class="field full"><label>住所</label><input id="dr_address" value="${esc(r.address||'')}"></div>
           <div class="field full"><label>集客元（どこから集客した方か）</label><input id="dr_src" value="${esc(r.src||'')}" placeholder="例：自社サイト / ◯◯エージェント / 紹介 など"></div>
         </div>
@@ -4729,7 +4734,8 @@ function openRefDrawer(id){
 }
 function saveRefEdit(id){
   const r=DB.referrals.find(x=>x.id===id); if(!r) return;
-  r.name=val('dr_name'); r.kana=val('dr_kana'); r.phone=val('dr_phone'); r.email=val('dr_email');
+  const _em=val('dr_email'); if(_em && !isEmail(_em)){ toast('メールアドレスの形式をご確認ください'); const _el=document.getElementById('dr_email'); if(_el) _el.focus(); return; }
+  r.name=val('dr_name'); r.kana=val('dr_kana'); r.phone=val('dr_phone'); r.email=_em;
   r.address=val('dr_address'); r.area=val('dr_area'); r.src=val('dr_src');
   const newStatus=document.getElementById('dr_status').value;
   const block=advanceGuard(r, newStatus);
@@ -4953,7 +4959,7 @@ function modalNewReferral(pjId, agId){
       <div class="field"><label>フリガナ <span style="color:var(--r)">*</span></label><input id="mKana" placeholder="ヤマダ タロウ"></div>
       <div class="field"><label>希望エリア <span style="color:var(--r)">*</span></label><select id="mArea">${areaOptions('')}</select></div>
       <div class="field"><label>電話番号 <span style="color:var(--r)">*</span></label><input id="mPhone" placeholder="090-0000-0000" inputmode="tel"><div class="cell-sub" style="font-size:11px;margin-top:3px">必須。ハイフンは自動で付きます</div></div>
-      <div class="field"><label>メール <span style="color:var(--r)">*</span></label><input id="mEmail" placeholder="you@example.com"></div>
+      <div class="field"><label>メール <span style="color:var(--r)">*</span></label><input id="mEmail" type="email" placeholder="you@example.com"></div>
       <div class="field full"><label>住所 <span style="color:var(--r)">*</span></label><input id="mAddress" placeholder="東京都〇〇区..."></div>
       <div class="field full"><label>集客元<span style="font-weight:400;color:var(--muted);font-size:11px">（任意・空欄でOK）</span></label><input id="mSrc" placeholder="例：自社サイト / ◯◯エージェント / 紹介 など"></div>
     </div>
@@ -5767,6 +5773,24 @@ document.addEventListener('drop', e=>{ const z=e.target.closest&&e.target.closes
 
 /* helpers */
 function val(id){ const el=document.getElementById(id); return el?el.value.trim():''; }
+/* メールアドレスの形式チェック（全メール欄で共通利用） */
+function isEmail(v){ return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test((v||'').trim()); }
+/* 入力中/フォーカスアウト時に、メール欄の形式をライブ判定して見た目とヒントで知らせる */
+function checkEmailField(el){
+  if(!el || el.id==='liId') return;                        // ログインID欄（メール/ID兼用）は対象外
+  const v=(el.value||'').trim();
+  const bad = v!=='' && !isEmail(v);                        // 空欄は必須チェックに委ね、形式のみ判定
+  el.classList.toggle('email-invalid', bad);
+  const wrap = el.parentElement;
+  let hint = wrap ? wrap.querySelector(':scope > .email-hint') : null;
+  if(bad){
+    if(!hint){ hint=document.createElement('div'); hint.className='email-hint';
+      hint.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><span>メールアドレスの形式が正しくありません（例：name@example.com）</span>';
+      el.insertAdjacentElement('afterend', hint); }
+  } else if(hint){ hint.remove(); }
+}
+document.addEventListener('input', e=>{ const t=e.target; if(t && t.matches && t.matches('input[type="email"]')) checkEmailField(t); });
+document.addEventListener('focusout', e=>{ const t=e.target; if(t && t.matches && t.matches('input[type="email"]')) checkEmailField(t); });
 function flash(el){ el.style.boxShadow='0 0 0 3px var(--g-bg)'; el.style.borderColor='var(--g)'; setTimeout(()=>{el.style.boxShadow='';el.style.borderColor='';},800); }
 function setAgency(id,status){ const a=agency(id); if(a){ if(status==='active'&&a.source==='applied'){} a.status=status; save(); viewAgencies(); updateNavCounts(); } }
 function saveAgency(){
@@ -8411,7 +8435,7 @@ function openSubPartnerAdd(){
       <div class="cell-sub" style="font-size:11px;margin-top:3px">正式名称で登録してください（登録後も編集できます）。</div>
     </div>
     <div class="field full"><label>担当者名（任意）</label><input id="spNewContact" placeholder="山田 太郎" autocomplete="off"></div>
-    <div class="field full"><label>メールアドレス（任意）</label><input id="spNewEmail" placeholder="partner@example.com" autocomplete="off"></div>
+    <div class="field full"><label>メールアドレス（任意）</label><input id="spNewEmail" type="email" placeholder="partner@example.com" autocomplete="off"></div>
     <div class="field full"><label>電話番号（任意）</label><input id="spNewPhone" placeholder="03-1234-5678" autocomplete="off"></div>
     <div class="field full"><label>社内メモ（任意）</label><textarea id="spNewNote" rows="2" placeholder="お相手には表示されません"></textarea></div>
     <div id="spAddErr" style="color:var(--r);font-size:12px;min-height:16px"></div>
@@ -8427,6 +8451,7 @@ async function doSubPartnerAdd(){
   const v=id=>((document.getElementById(id)||{}).value||'').trim();
   const name=v('spNewName');
   if(!name){ if(errEl) errEl.textContent='会社名を入力してください'; return; }
+  if(v('spNewEmail') && !isEmail(v('spNewEmail'))){ if(errEl) errEl.textContent='メールアドレスの形式をご確認ください'; const _el=document.getElementById('spNewEmail'); if(_el) _el.focus(); return; }
   if(btn){ btn.disabled=true; btn.textContent='登録中…'; }
   const res=await SUPA.subpartnerRegister(name);
   if(res.error){ if(btn){ btn.disabled=false; btn.textContent='登録する'; } if(errEl) errEl.textContent='登録に失敗しました：'+res.error; return; }
@@ -8853,7 +8878,7 @@ function openSubPartnerEdit(company){
        :`<div class="cell-sub" style="font-size:11px;margin-top:3px">発行済みのURL・パスワードは変わりません。</div>`}
     </div>
     <div class="field full"><label>担当者名</label><input id="spEdContact" value="${esc(inf.contact||'')}" placeholder="山田 太郎" autocomplete="off"></div>
-    <div class="field full"><label>メールアドレス</label><input id="spEdEmail" value="${esc(inf.email||'')}" placeholder="partner@example.com" autocomplete="off"></div>
+    <div class="field full"><label>メールアドレス</label><input id="spEdEmail" type="email" value="${esc(inf.email||'')}" placeholder="partner@example.com" autocomplete="off"></div>
     <div class="field full"><label>電話番号</label><input id="spEdPhone" value="${esc(inf.phone||'')}" placeholder="03-1234-5678" autocomplete="off"></div>
     <div class="field full"><label>社内メモ</label><textarea id="spEdNote" rows="3" placeholder="お相手には表示されません">${esc(inf.note||'')}</textarea></div>
     <div id="spEdErr" style="color:var(--r);font-size:12px;min-height:16px"></div>
@@ -8871,6 +8896,7 @@ async function doSubPartnerEditSave(oldCompany){
   const oldName=(oldCompany||'').trim();
   const newName=v('spEdName');
   if(!newName){ if(errEl) errEl.textContent='会社名を入力してください'; return; }
+  if(v('spEdEmail') && !isEmail(v('spEdEmail'))){ if(errEl) errEl.textContent='メールアドレスの形式をご確認ください'; const _el=document.getElementById('spEdEmail'); if(_el) _el.focus(); return; }
 
   if(newName!==oldName){
     const sp = subPartnersOf(S.agencyId).find(x=>x.name===oldName);
@@ -9631,7 +9657,7 @@ function openTrackerEdit(id, draft){
     <div class="field full"><label>お名前 <span style="color:var(--r)">*</span></label><input id="tkeName" value="${esc(cur.name)}"></div>
     <div class="field full"><label>フリガナ</label><input id="tkeKana" value="${esc(cur.kana)}"></div>
     <div class="field full"><label>電話番号</label><input id="tkePhone" value="${esc(cur.phone)}" placeholder="090-1234-5678"></div>
-    <div class="field full"><label>メールアドレス</label><input id="tkeEmail" value="${esc(cur.email)}" placeholder="example@example.com"></div>
+    <div class="field full"><label>メールアドレス</label><input id="tkeEmail" type="email" value="${esc(cur.email)}" placeholder="example@example.com"></div>
     <div class="field full"><label>希望エリア</label><select id="tkeArea">${areaOptions(cur.area)}</select></div>
     <div class="field full"><label>備考</label><textarea id="tkeNote" rows="2">${esc(cur.note)}</textarea></div>
 
@@ -9671,6 +9697,7 @@ async function doTrackerEditSave(id){
   const v=x=>((document.getElementById(x)||{}).value||'').trim();
   const name=v('tkeName');
   if(!name){ if(errEl) errEl.textContent='お名前を入力してください'; return; }
+  if(v('tkeEmail') && !isEmail(v('tkeEmail'))){ if(errEl) errEl.textContent='メールアドレスの形式をご確認ください'; const _el=document.getElementById('tkeEmail'); if(_el) _el.focus(); return; }
   if(btn){ btn.disabled=true; btn.textContent='保存中…'; }
   const res=await SUPA.trackerUpdatePerson(_tkToken, _tkPw, r.kind, r.id, {
     name, kana:v('tkeKana'), phone:v('tkePhone'), email:v('tkeEmail'), area:v('tkeArea'), note:v('tkeNote')
