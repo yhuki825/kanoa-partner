@@ -643,11 +643,13 @@ select.icell.stsel{font-weight:600;border:1px solid var(--line-2);background:var
 .pipe-step{flex:1;position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 2px 5px;border-radius:7px;font-size:10.5px;font-weight:600;color:var(--faint);cursor:default;transition:all .14s;text-align:center}
 .cmd-pipe.editable .pipe-step{cursor:pointer}
 .cmd-pipe.editable .pipe-step:hover{background:var(--accent-soft);color:var(--accent-ink)}
-.pipe-step .pmark{width:16px;height:16px;display:grid;place-items:center;font-size:14px;line-height:1;font-weight:700;color:var(--line-2);transition:all .14s}
+.pipe-step .pmark{width:16px;height:16px;display:grid;place-items:center;font-size:14px;line-height:1;font-weight:700;color:var(--faint);transition:all .14s}
 .pipe-step.passed{color:var(--ink-soft)}
 .pipe-step.passed .pmark{color:var(--accent)}
-.pipe-step.cur{color:var(--accent-ink)}
-.pipe-step.cur .pmark{font-size:16px;text-shadow:0 0 0 var(--accent)}
+.pipe-step.passed.cur{color:var(--accent-ink)}
+.pipe-step.failed{color:var(--r)}
+.pipe-step.failed .pmark{color:var(--r)}
+.pipe-step.cur .pmark{font-size:16px}
 .pipe-line{width:8px;height:2px;background:var(--line-2);flex-shrink:0}
 .pipe-line.done{background:var(--accent)}
 /* facts row */
@@ -1973,6 +1975,8 @@ function seed(){
     const bridge = refs.filter(r=>r.ag==='AG-01').slice(3,4);
     bridge.forEach(r=>{ r.src='ブリッジ人材'; });
   })();
+  // 見送りの候補者はどの段階で落選したか（✕表示用）を設定
+  refs.forEach(r=>{ if(r.status==='rejected' && !r.failAt) r.failAt='screening'; });
   // デモ用に一部の候補者へ書類を添付（書類チップ・ヒントの動作確認用）
   const seedDocs = (nm, kinds) => { const r=refs.find(x=>x.name===nm); if(r){ r.docs=kinds.map((k,i)=>({id:uid('D'),name:`${nm.replace(/\s/g,'')}_${k}.pdf`,kind:k,size:180000+i*40000,uploaded:'2026-06-22 10:00',seeded:true})); } };
   seedDocs('田中 翔太',['履歴書','職務経歴書']);
@@ -3715,18 +3719,36 @@ function nextActionHint(r, viewer){
   return null;
 }
 
+function stageMark(r, i){
+  // 各段階の状態を判定：'pass'(○=通過) / 'fail'(✕=未通過) / 'blank'(空白=未到達)
+  const stages = ['entry','screening','interview','offer','joined'];
+  if(r.status==='rejected'){
+    const failIdx = stages.indexOf(r.failAt||'');
+    if(failIdx<0) return 'blank';           // 落選段階が未記録
+    if(i<failIdx) return 'pass';            // 落選段階より前は通過
+    if(i===failIdx) return 'fail';          // 落選した段階
+    return 'blank';                         // それ以降は未到達
+  }
+  const curIdx = stages.indexOf(r.status);  // declined等は-1
+  return (curIdx>=0 && i<=curIdx) ? 'pass' : 'blank';
+}
+
 function pipelineStepper(r, viewer){
   const stages = ['entry','screening','interview','offer','joined'];
-  const editable = viewer==='kanoa' && r.status!=='rejected';
-  const curIdx = stages.indexOf(r.status);
+  const editable = viewer==='kanoa';        // 管理者(KANOA)のみ選択可・パートナーは表示のみ
+  // 現在地（到達済みの最終段階）
+  const curIdx = r.status==='rejected' ? stages.indexOf(r.failAt||'') : stages.indexOf(r.status);
   let h = `<div class="cmd-pipe ${editable?'editable':''}">`;
   stages.forEach((s,i)=>{
-    const cur = curIdx===i;
-    const passed = curIdx>=i;   // 通過（現在地を含む到達済み）= ○ / 未通過 = ✕
-    if(i>0) h += `<span class="pipe-line ${curIdx>=i?'done':''}"></span>`;
-    const tap = editable ? `data-act="set-ref-status" data-ref="${r.id}" data-s="${s}"` : '';
-    h += `<div class="pipe-step ${passed?'passed':'unpassed'} ${cur?'cur':''}" ${tap} title="${STATUS[s].label}に変更">
-      <span class="pmark">${passed?'○':'✕'}</span>
+    const mark = stageMark(r, i);           // 'pass' / 'fail' / 'blank'
+    const cur = i===curIdx;
+    if(i>0) h += `<span class="pipe-line ${mark!=='blank'?'done':''}"></span>`;
+    const tap = editable ? `data-act="set-ref-milestone" data-ref="${r.id}" data-s="${s}"` : '';
+    const cls = mark==='pass'?'passed':(mark==='fail'?'failed':'blank');
+    const sym = mark==='pass'?'○':(mark==='fail'?'✕':'');
+    const ttl = editable ? 'クリックで ○（通過）→ ✕（未通過）→ 空白（未到達）を切替' : STATUS[s].label;
+    h += `<div class="pipe-step ${cls} ${cur?'cur':''}" ${tap} title="${ttl}">
+      <span class="pmark">${sym}</span>
       <span>${STATUS[s].label}</span>
     </div>`;
   });
@@ -5306,14 +5328,14 @@ document.addEventListener('click', e=>{
 
     /* 連絡：候補者ステータスをチャットから直接変更 */
     case 'set-ref-status': {
+      // ヒントCTA等から、指定の段階まで「通過（○）」に進める
       const r=DB.referrals.find(x=>x.id===t.dataset.ref); const st=t.dataset.s;
-      if(r && st && r.status!==st){
+      if(r && st && (r.status!==st || r.failAt)){
         const block=advanceGuard(r, st);
         if(block){ toast(block); break; }
-        r.status=st;
+        r.status=st; r.failAt=null;
         if(st==='joined' && !r.joined) r.joined=todayISO();
         DB.activity.unshift({ts:nowTS(),actor:'KANOA',action:'ステータス変更',detail:`${r.name} を「${STATUS[st].label}」に`});
-        // 内定に進んだら、内定後の必要書類をKANOAから自動でリマインド
         if(st==='offer'){ const need=missingDocsForStage(r,'offer'); const opt=missingOptionalForStage(r,'offer');
           if(need.length){ const txt=`【内定おめでとうございます】オファー提示のため、至急 ${need.join('・')} のご提出をお願いします。${opt.length?`（賞与の支払いがある場合は ${opt.join('・')} も）`:''}`;
             DB.messages.push({id:uid('M'),ag:r.ag,from:'kanoa',text:txt,ts:nowTS(),read:false,refId:r.id}); }
@@ -5322,6 +5344,39 @@ document.addEventListener('click', e=>{
         toast(`${r.name} を「${STATUS[st].label}」に変更しました`);
         renderConversation(curThreadAg(), meRole());
       }
+      break;
+    }
+    case 'set-ref-milestone': {
+      // 管理者がマイルストーンをクリック：○（通過）→ ✕（未通過）→ 空白（未到達）を循環
+      const r=DB.referrals.find(x=>x.id===t.dataset.ref); const s=t.dataset.s;
+      const stages=['entry','screening','interview','offer','joined'];
+      const i=stages.indexOf(s);
+      if(!r || i<0) break;
+      const cur=stageMark(r, i);                                   // 現在のこの段階の状態
+      const next = cur==='blank' ? 'pass' : (cur==='pass' ? 'fail' : 'blank');
+      if(next==='pass'){
+        const block=advanceGuard(r, s);
+        if(block){ toast(block); break; }
+        r.status=s; r.failAt=null;
+        if(s==='joined' && !r.joined) r.joined=todayISO();
+        DB.activity.unshift({ts:nowTS(),actor:'KANOA',action:'マイルストーン',detail:`${r.name}：${STATUS[s].label} を「通過（○）」に`});
+        // 内定に進んだら、内定後の必要書類をKANOAから自動でリマインド
+        if(s==='offer'){ const need=missingDocsForStage(r,'offer'); const opt=missingOptionalForStage(r,'offer');
+          if(need.length){ const txt=`【内定おめでとうございます】オファー提示のため、至急 ${need.join('・')} のご提出をお願いします。${opt.length?`（賞与の支払いがある場合は ${opt.join('・')} も）`:''}`;
+            DB.messages.push({id:uid('M'),ag:r.ag,from:'kanoa',text:txt,ts:nowTS(),read:false,refId:r.id}); }
+        }
+        toast(`${r.name}：${STATUS[s].label} を「通過（○）」にしました`);
+      } else if(next==='fail'){
+        r.status='rejected'; r.failAt=s;
+        DB.activity.unshift({ts:nowTS(),actor:'KANOA',action:'マイルストーン',detail:`${r.name}：${STATUS[s].label} を「未通過（✕）」に`});
+        toast(`${r.name}：${STATUS[s].label} を「未通過（✕）」にしました`);
+      } else { // blank（未到達）：一つ手前の段階まで戻す
+        r.status = i>0 ? stages[i-1] : 'entry'; r.failAt=null;
+        DB.activity.unshift({ts:nowTS(),actor:'KANOA',action:'マイルストーン',detail:`${r.name}：${STATUS[s].label} を「未到達（空白）」に`});
+        toast(`${r.name}：${STATUS[s].label} を「未到達（空白）」にしました`);
+      }
+      save(); updateNavCounts();
+      renderConversation(curThreadAg(), meRole());
       break;
     }
     /* 連絡：日程調整メッセージを下書き */
