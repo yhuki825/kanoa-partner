@@ -435,7 +435,7 @@ select.icell.stsel{font-weight:600;border:1px solid var(--line-2);background:var
 .thread-pj-tag{font-size:9.5px;font-weight:600;font-family:var(--mono);color:var(--accent-ink);background:var(--accent-soft);padding:1px 6px;border-radius:5px;margin-right:5px}
 .chat{display:flex;flex-direction:column;height:100%;min-height:0}
 /* 会話：左に縦の候補者レール＋右にチャット */
-.conv{display:grid;grid-template-columns:200px minmax(0,1fr);height:calc(100dvh - 196px);min-height:340px}
+.conv{display:grid;grid-template-columns:200px minmax(0,1fr);height:calc(100dvh - 88px);min-height:340px}
 .cand-rail{display:flex;flex-direction:column;border-right:1px solid var(--line);background:var(--surface-2);min-height:0}
 .cand-rail-head{display:flex;align-items:center;justify-content:space-between;padding:12px 12px 9px;font-size:11px;font-weight:700;color:var(--muted);font-family:var(--mono);letter-spacing:.04em;flex-shrink:0;border-bottom:1px solid var(--line)}
 .cand-rail-head b{color:var(--ink);font-family:var(--display)}
@@ -724,7 +724,7 @@ select.icell.stsel{font-weight:600;border:1px solid var(--line-2);background:var
 
   /* ── メッセージ／チャット画面（実クラス対応版） ── */
   /* .conv は720pxで既に1カラム化済み。560pxではさらに高さと余白を最適化 */
-  .conv{height:calc(100dvh - 150px);min-height:300px}
+  .conv{height:calc(100dvh - 100px);min-height:300px}
   .cand-rail{max-height:120px}                            /* 上部の候補者レールを圧縮 */
   .chat-head{padding:10px 12px;gap:8px}
   .chat-body{padding:14px 10px;gap:7px}
