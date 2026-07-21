@@ -4662,7 +4662,8 @@ function openRefDrawer(id){
     return;
   }
 
-  // AGENCY: read-only
+  // AGENCY（一次パートナー）は自社候補者の個人情報を編集可 / SUB（二次パートナー）は閲覧のみ
+  const canEdit = S.role==='agency';
   const tel=r.phone?`<a href="tel:${esc(r.phone)}">${esc(r.phone)}</a>`:'—';
   const mail=r.email?`<a href="mailto:${esc(r.email)}">${esc(r.email)}</a>`:'—';
   const row=(l,v,copy)=>`<div class="info-row"><span class="info-label">${l}</span><span class="info-val">${v}</span>${copy?`<button class="copy-btn" data-act="copy" data-v="${esc(copy)}">コピー</button>`:''}</div>`;
@@ -4676,6 +4677,17 @@ function openRefDrawer(id){
       ${chips}
       ${rewardBreakdown(r,true)}
       <div class="dt-block-title">個人情報</div>
+      ${canEdit ? `
+      <div class="dr-form">
+        <div class="field full"><label>氏名</label><input id="dr_name" value="${esc(r.name||'')}"></div>
+        <div class="field full"><label>フリガナ</label><input id="dr_kana" value="${esc(r.kana||'')}"></div>
+        <div class="field"><label>電話</label><input id="dr_phone" value="${esc(r.phone||'')}"></div>
+        <div class="field"><label>メール</label><input id="dr_email" type="email" value="${esc(r.email||'')}"></div>
+        <div class="field full"><label>住所</label><input id="dr_address" value="${esc(r.address||'')}"></div>
+        <div class="field full"><label>希望エリア</label><select id="dr_area">${areaOptions(r.area||'')}</select></div>
+      </div>
+      <button class="btn btn-primary btn-block btn-sm" style="margin:2px 0 4px" data-act="save-ref-edit">個人情報を保存</button>
+      ` : `
       <div class="info-card">
         ${row('氏名',esc(r.name))}
         ${row('フリガナ',esc(r.kana||'—'))}
@@ -4684,6 +4696,7 @@ function openRefDrawer(id){
         ${row('住所',esc(r.address||'—'),r.address)}
         ${row('希望エリア',esc(r.area||'—'))}
       </div>
+      `}
       <div class="dt-block-title">進捗</div>
       ${stepBar(r)}
       ${checksBlock(r)}
@@ -4735,20 +4748,23 @@ function saveRefEdit(id){
   const r=DB.referrals.find(x=>x.id===id); if(!r) return;
   const _em=val('dr_email'); if(_em && !isEmail(_em)){ toast('メールアドレスの形式をご確認ください'); const _el=document.getElementById('dr_email'); if(_el) _el.focus(); return; }
   r.name=val('dr_name'); r.kana=val('dr_kana'); r.phone=val('dr_phone'); r.email=_em;
-  r.address=val('dr_address'); r.area=val('dr_area'); r.src=val('dr_src');
-  const newStatus=document.getElementById('dr_status').value;
-  const block=advanceGuard(r, newStatus);
-  if(block && newStatus!==r.status){ toast(block); return; }
-  r.status=newStatus;
-  r.session=val('dr_session')||'—';
-  // 入社日：入力欄で選んだ日付（YYYY-MM-DD）を常に優先。空にすれば「未定」へ戻せる。
-  const jd=document.getElementById('dr_joined').value;
-  r.joined = jd || '';
-  // 「入社」ステータスなのに入社日が未入力なら、当日を補完（編集の手間を省く）
-  if(newStatus==='joined' && !r.joined){ r.joined=todayISO(); }
-  r.pj=document.getElementById('dr_pj').value;
-  r.ag=document.getElementById('dr_ag').value;
-  const note=document.getElementById('dr_note'); if(note) r.note=note.value.trim();
+  r.address=val('dr_address'); r.area=val('dr_area');
+  // 以下はKANOA編集フォームにのみ存在する欄。無い場合（一次パートナーの個人情報編集）は触らない。
+  const srcEl=document.getElementById('dr_src'); if(srcEl) r.src=srcEl.value.trim();
+  const stEl=document.getElementById('dr_status');
+  if(stEl){
+    const newStatus=stEl.value;
+    const block=advanceGuard(r, newStatus);
+    if(block && newStatus!==r.status){ toast(block); return; }
+    r.status=newStatus;
+    const sessEl=document.getElementById('dr_session'); if(sessEl) r.session=sessEl.value.trim()||'—';
+    // 入社日：入力欄で選んだ日付（YYYY-MM-DD）を常に優先。空にすれば「未定」へ戻せる。
+    const jdEl=document.getElementById('dr_joined');
+    if(jdEl){ r.joined=jdEl.value||''; if(newStatus==='joined' && !r.joined) r.joined=todayISO(); }
+    const pjEl=document.getElementById('dr_pj'); if(pjEl) r.pj=pjEl.value;
+    const agEl=document.getElementById('dr_ag'); if(agEl) r.ag=agEl.value;
+    const note=document.getElementById('dr_note'); if(note) r.note=note.value.trim();
+  }
   save(); updateNavCounts();
   if(S.view==='referrals'){ renderRefChips(); renderRefTable(); }
   else if(S.view==='projectDetail') viewProjectDetail();
