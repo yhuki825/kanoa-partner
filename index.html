@@ -1895,6 +1895,7 @@ let _tkEditDraft = null;   // 雛形モーダルを開く直前の入力内容�
    報酬計算(baseSalaryFor)は「東京」「大阪」等を includes で判定するため、
    「東京都」「大阪府」と保存しても正しく一致する（表記ゆれが消え精度が上がる）。 */
 const PREFECTURES = [
+  '全国勤務',
   '北海道','青森県','岩手県','宮城県','秋田県','山形県','福島県',
   '茨城県','栃木県','群馬県','埼玉県','千葉県','東京都','神奈川県',
   '新潟県','富山県','石川県','福井県','山梨県','長野県',
@@ -1919,6 +1920,7 @@ function normalizeArea(s){
   const v=String(s||'').trim();
   if(!v) return '';
   if(PREFECTURES.includes(v)) return v;            // 既に正しい表記
+  if(/全国/.test(v)) return '全国勤務';
   if(/海外|外国|オーバーシー/i.test(v)) return '海外';
   // 「東京都渋谷区」のように前方一致するもの
   const hit=PREFECTURES.find(p=>p!=='海外' && v.startsWith(p));
@@ -2229,7 +2231,8 @@ function effReward(pj,ag){
 /* 楽天：基本給はエリアで変わる。基本給×14×30%＝KANOA受領、その85%＝各社報酬 */
 function baseSalaryFor(r){
   const p=project(r.pj); const cfg=p&&p.baseSalaryByArea; if(!cfg) return 0;
-  const area=(r.area||r.address||'')+'';
+  let area=(r.area||r.address||'')+'';
+  if(area.includes('全国')) area='東京都';   // 全国勤務は東京都と同じ基本給を適用
   for(const a of (cfg.areas||[])){ if((a.match||[]).some(m=>area.includes(m))) return a.salary; }
   return cfg.default||0;
 }
