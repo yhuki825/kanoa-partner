@@ -1793,14 +1793,12 @@ function docSlot(r, kind, label, hint){
 }
 function docsSection(r){
   const reqIv=stageReq(r.pj,'interview'); const reqOf=stageReq(r.pj,'offer');
-  const offerStage = r.status==='offer' || r.status==='joined';
   const OFFER_KINDS=['源泉徴収票','給与明細','賞与明細'];
-  const set=docSet(r);
-  // 内定後の必要書類スロット：案件設定の必須/任意に加え、
-  // 二次パートナー等が実際にアップロードした内定後書類（内定承諾資料）も、案件未設定でも必ずスロット表示する。
-  const reqK=(offerStage&&reqOf)?(reqOf.required||[]):[];
-  const optK=(offerStage&&reqOf)?(reqOf.optional||[]):[];
-  const extraK=OFFER_KINDS.filter(k=>set.has(k)&&!reqK.includes(k)&&!optK.includes(k));
+  // 内定後の必要書類スロット：ステータスに関わらず常時表示する（内定前でも提出できるように）。
+  // 案件設定の必須/任意を優先しつつ、設定にない標準書類（源泉徴収票・給与明細・賞与明細）もスロット表示する。
+  const reqK=reqOf?(reqOf.required||[]):[];
+  const optK=reqOf?(reqOf.optional||[]):[];
+  const extraK=OFFER_KINDS.filter(k=>!reqK.includes(k)&&!optK.includes(k));
   const offerSlots = reqK.map(k=>docSlot(r,k,k)).join('')
     + optK.map(k=>docSlot(r,k,k+'（任意）')).join('')
     + extraK.map(k=>docSlot(r,k,k)).join('');
