@@ -9686,15 +9686,14 @@ function openTrackerEdit(id, draft){
       </div>
       <div class="cell-sub" style="font-size:11px;margin-top:5px">PDF / Word / Excel / 画像（1ファイル25MBまで）</div>
     </div>
-    ${r.kind==='referral'?`
     <div class="field full" style="margin-top:10px">
       <label>内定承諾資料</label>
-      <div class="cell-sub" style="font-size:11px;margin-bottom:6px">内定承諾にあたって必要な書類です。以下の3点をアップロードいただけます。</div>
+      <div class="cell-sub" style="font-size:11px;margin-bottom:6px">内定承諾にあたって必要な書類です。以下の3点はいつでもアップロードいただけます。</div>
       ${docChip(s.gensen,'内定承諾資料1','gensen')}
       ${docChip(s.kyuyo,'内定承諾資料2','kyuyo')}
       ${docChip(s.shoyo,'内定承諾資料3','shoyo')}
       <div class="cell-sub" style="font-size:11px;margin-top:5px">PDF / Word / Excel / 画像（1ファイル25MBまで）</div>
-    </div>`:''}
+    </div>
 
     <div id="tkeErr" style="color:var(--r);font-size:12px;min-height:16px"></div>
     <div class="modal-actions">
