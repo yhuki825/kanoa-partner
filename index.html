@@ -2646,7 +2646,10 @@ function _silentRerenderInner(){
   // 画面に出さない（レイアウトにも影響させない）
   ghost.style.cssText = 'position:absolute;left:-99999px;top:0;width:'+real.clientWidth+'px;visibility:hidden';
   real.id = '__content_real';           // 本物のidを一時的に外す
-  parent.appendChild(ghost);
+  // ghostは必ず本物より「前」に挿入する。ビューが2段階描画（骨組み→getElementByIdで内側を描画）のとき、
+  // getElementByIdは文書順で先の要素を返すため、後ろに置くと内側の描画が本物側に流れ、
+  // ghostに残った空の骨組みで本物を上書きしてしまう（送客一覧がドロワーを閉じた瞬間に消えるバグの原因）。
+  parent.insertBefore(ghost, real);
   _ghostActive=true;
   let nextHTML=null;
   try{
