@@ -4218,13 +4218,19 @@ function viewTasks(){
   const sentOpen=sent.filter(t=>!t.done), sentDone=sent.filter(t=>t.done);
   const c=document.getElementById('content');
 
+  // タスクに紐づく候補者名（求職者）を表示する
+  const candLabel=t=>{
+    if(!t.refId) return '';
+    const r=DB.referrals.find(x=>x.id===t.refId);
+    return r?`<span style="font-weight:600;color:var(--ink-soft)">${esc(r.name)}さん</span> · `:'';
+  };
   // 担当タスク行（依頼元バッジつき）
   const taskRow=t=>{ const a=t.ag?agency(t.ag):null; const fromOther=(t.from||t.owner)!==me;
     const overdue=t.due && t.due<todayISO() && !t.done;
     return `<div class="info-row">
       <button class="task-check ${t.done?'on':''}" data-act="task-toggle" data-id="${t.id}">${t.done?'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>':''}</button>
       <div class="info-val"><div style="${t.done?'text-decoration:line-through;color:var(--muted)':'font-weight:500'}">${fromOther?`<span class="task-tag task-tag-req">${esc(partyLabel(t.from))}から依頼</span> `:''}${esc(t.text)}</div>
-        <div class="cell-sub" style="margin-top:2px">${a&&isK?esc(a.name)+' · ':''}${t.due?`<span style="${overdue?'color:var(--r);font-weight:600':''}">期限 ${esc(t.due)}</span>`:'期限なし'}</div></div>
+        <div class="cell-sub" style="margin-top:2px">${candLabel(t)}${a&&isK?esc(a.name)+' · ':''}${t.due?`<span style="${overdue?'color:var(--r);font-weight:600':''}">期限 ${esc(t.due)}</span>`:'期限なし'}</div></div>
       ${taskThreadBtn(t)}
       <button class="copy-btn" data-act="task-del" data-id="${t.id}">削除</button>
     </div>`;
@@ -4234,7 +4240,7 @@ function viewTasks(){
     return `<div class="info-row">
       <span class="task-check ${t.done?'on':''}" style="cursor:default">${t.done?'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>':''}</span>
       <div class="info-val"><div style="${t.done?'color:var(--muted)':'font-weight:500'}"><span class="task-tag task-tag-to">${esc(partyLabel(t.owner))}へ依頼</span> ${esc(t.text)}</div>
-        <div class="cell-sub" style="margin-top:2px">${t.done?'<span style="color:var(--g);font-weight:600">完了済み</span>':`<span style="${overdue?'color:var(--r);font-weight:600':''}">${t.due?'期限 '+esc(t.due):'相手の対応待ち'}</span>`}</div></div>
+        <div class="cell-sub" style="margin-top:2px">${candLabel(t)}${t.done?'<span style="color:var(--g);font-weight:600">完了済み</span>':`<span style="${overdue?'color:var(--r);font-weight:600':''}">${t.due?'期限 '+esc(t.due):'相手の対応待ち'}</span>`}</div></div>
       ${taskThreadBtn(t)}
       <button class="copy-btn" data-act="task-del" data-id="${t.id}">取消</button>
     </div>`;
