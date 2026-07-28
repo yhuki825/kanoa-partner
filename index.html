@@ -195,9 +195,12 @@ select.icell{cursor:pointer}
 .bd-interview{color:var(--a);background:var(--a-bg)}
 .bd-offer{color:var(--v);background:var(--v-bg)}
 .bd-joined{color:var(--g);background:var(--g-bg)}
+.bd-resigned{color:#B45309;background:#FDF2E2}
 .bd-rejected{color:var(--r);background:var(--r-bg)}
 .bd-declined{color:var(--muted);background:var(--gray-bg)}
-.tag{display:inline-flex;align-items:center;padding:2px 9px;border-radius:6px;font-size:11px;font-weight:600;background:var(--gray-bg);color:var(--ink-soft)}
+.tag{display:inline-flex;align-items:center;padding:2px 9px;border-radius:6px;font-size:11px;font-weight:600;background:var(--gray-bg);color:var(--ink-soft);white-space:nowrap}
+/* 表の中のタグは1文字ずつ折り返さず、長い案件名は「…」で省略する（行が異常に高くなるのを防ぐ） */
+.tbl td .tag{display:inline-block;max-width:190px;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
 .tag-open{background:var(--g-bg);color:var(--g)}
 .tag-closed{background:var(--gray-bg);color:var(--muted)}
 .tag-draft{background:var(--a-bg);color:var(--a)}
@@ -210,7 +213,7 @@ select.icell{cursor:pointer}
 select.icell.stsel{font-weight:600;border:1px solid var(--line-2);background:var(--surface)}
 .stsel.st-entry{color:var(--gray)} .stsel.st-screening{color:var(--b)} .stsel.st-interview{color:var(--a)}
 .stsel.st-offer{color:var(--v)} .stsel.st-joined{color:var(--g)} .stsel.st-rejected{color:var(--r)}
-.stsel.st-declined{color:var(--muted)}
+.stsel.st-declined{color:var(--muted)} .stsel.st-resigned{color:#B45309}
 
 /* toolbar / filters */
 .toolbar{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
@@ -969,8 +972,8 @@ const SUPA = (()=>{
   const toAssign  =a=>({project_id:a.pj,agency_id:a.ag,published:!!a.published,ref_override:a.refOv??null,suc_override:a.sucOv??null});
   const fromIntake=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kana||'',phone:r.phone||'',email:r.email||'',address:r.address||'',area:r.area||'',src:r.source||'',company:r.company||'',note:r.note||'',docs:Array.isArray(r.docs)?r.docs:(r.docs?JSON.parse(r.docs):[]),source_type:r.source_type||'form',status:r.status||'pending',decidedAt:r.decided_at?TZ_toLocal(r.decided_at):'',refId:r.ref_id||'',rejectNote:r.reject_note||'',created:TZ_toLocal(r.created_at)||nowTS()});
 const toIntake=r=>({id:r.id,project_id:r.pj||null,agency_id:r.ag,name:r.name,kana:r.kana||null,phone:r.phone||null,email:r.email||null,address:r.address||null,area:r.area||null,source:r.src||null,company:r.company||null,note:r.note||null,docs:JSON.stringify(r.docs||[]),source_type:r.source_type||'form',status:r.status||'pending',decided_at:r.decidedAtISO||null,ref_id:r.refId||null,reject_note:r.rejectNote||null});
-const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kana,phone:r.phone,email:r.email,address:r.address,area:r.area,src:r.source_company||'',resigned:!!r.resigned,resignedOn:r.resigned_on||null,resignFraud:!!r.resign_fraud,resignConfirmed:!!r.resign_confirmed,status:r.status,session:r.session||'—',joined:r.joined_on||'',created:TZ_toLocalDay(r.created_at),note:r.note||'',docs:[],spi:r.spi_status||'none',compliance:r.compliance_status||'none',seenK:r.seen_kanoa!==false,failAt:r.fail_at||null});
-  const toRef  =r=>({id:r.id,project_id:r.pj,agency_id:r.ag,name:r.name,kana:r.kana,phone:r.phone,email:r.email,address:r.address,area:r.area,source_company:r.src||null,resigned:!!r.resigned,resigned_on:r.resignedOn||null,resign_fraud:!!r.resignFraud,resign_confirmed:!!r.resignConfirmed,status:r.status,session:r.session==='—'?null:r.session,joined_on:r.joined||null,note:r.note||null,spi_status:r.spi||'none',compliance_status:r.compliance||'none',seen_kanoa:r.seenK!==false,fail_at:r.failAt||null});
+const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kana,phone:r.phone,email:r.email,address:r.address,area:r.area,src:r.source_company||'',resigned:!!r.resigned,resignedOn:r.resigned_on||null,resignFraud:!!r.resign_fraud,resignConfirmed:!!r.resign_confirmed,status:r.status,session:r.session||'—',joined:r.joined_on||'',created:TZ_toLocalDay(r.created_at),note:r.note||'',adminNote:r.admin_note||'',payStatus:r.pay_status||'',docs:[],spi:r.spi_status||'none',compliance:r.compliance_status||'none',seenK:r.seen_kanoa!==false,failAt:r.fail_at||null});
+  const toRef  =r=>({id:r.id,project_id:r.pj,agency_id:r.ag,name:r.name,kana:r.kana,phone:r.phone,email:r.email,address:r.address,area:r.area,source_company:r.src||null,resigned:!!r.resigned,resigned_on:r.resignedOn||null,resign_fraud:!!r.resignFraud,resign_confirmed:!!r.resignConfirmed,status:r.status,session:r.session==='—'?null:r.session,joined_on:r.joined||null,note:r.note||null,admin_note:r.adminNote||null,pay_status:r.payStatus||null,spi_status:r.spi||'none',compliance_status:r.compliance||'none',seen_kanoa:r.seenK!==false,fail_at:r.failAt||null});
   const fromReflog=r=>({id:r.id,refId:r.ref_id,ts:r.ts||'',by:r.by_name||'',byRole:r.by_role||'',action:r.action||'',detail:r.detail||''});
   const toReflog=l=>({id:l.id,ref_id:l.refId,ts:l.ts||'',by_name:l.by||'',by_role:l.byRole||'',action:l.action||'',detail:l.detail||''});
   const fromInvoice=r=>({id:r.id,no:r.no,agId:r.agency_id,status:r.status,items:r.items||[],subtotal:r.subtotal||0,tax:r.tax||0,total:r.total||0,issuedOn:r.issued_on||'',submittedOn:r.submitted_on||null,decidedOn:r.decided_on||null,paidOn:r.paid_on||null,rejectReason:r.reject_reason||'',history:r.history||[]});
@@ -1055,6 +1058,31 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     if(pk){ return pk.map(k=>row[k]).join('::'); }
     return (row && row.id!=null) ? String(row.id) : null;
   }
+  /* ── DBにまだ存在しない列への耐性 ────────────────────────────
+     新しい項目を追加したがSupabase側に列を足していない場合、以前は upsert が
+     丸ごと失敗し「保存できているように見えて何も保存されない」状態になっていた。
+     ここでは足りない列を検知して記憶し、その列を外して再送する（他の項目は守る）。
+     不足列はコンソールに出し、KANOAログイン時は1度だけ画面にも知らせる。          */
+  const _missingCols = Object.create(null);   // table -> Set(column)
+  function _isMissingCol(table, col){ const s=_missingCols[table]; return !!(s && s.has(col)); }
+  function _rememberMissingCol(table, col){
+    (_missingCols[table] || (_missingCols[table]=new Set())).add(col);
+    console.warn(`[sync] ${table}.${col} がDBに存在しないため、この項目を除いて保存します。`
+      + ` 対処: alter table public.${table} add column if not exists ${col} text;`);
+    try{ if(typeof notifyMissingColumn==='function') notifyMissingColumn(table, col); }catch(e){}
+  }
+  function _stripMissingCols(table, rows){
+    const s=_missingCols[table]; if(!s || !s.size) return rows;
+    return rows.map(r=>{ const o={}; for(const k in r){ if(!s.has(k)) o[k]=r[k]; } return o; });
+  }
+  /* PostgREST/Postgres のエラーから「存在しない列名」を取り出す */
+  function _unknownColumn(err){
+    const m = ((err&&err.message)||'') + ' ' + ((err&&err.details)||'') + ' ' + ((err&&err.hint)||'');
+    let g = /Could not find the '([^']+)' column/.exec(m);            if(g) return g[1];
+    g = /column "([A-Za-z0-9_]+)" of relation/.exec(m);               if(g) return g[1];
+    g = /column ([A-Za-z0-9_.]+) does not exist/.exec(m);             if(g) return String(g[1]).split('.').pop();
+    return null;
+  }
   /* サーバーから読み直した内容を「送信済み」として記録する（無駄な再送を防ぐ） */
   function markSynced(table, rows){
     const m=_sent[table]||(_sent[table]=Object.create(null));
@@ -1076,16 +1104,23 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     clearTimeout(syncT); syncT=null;   // ★重要: タイマーIDを解放。これが残ると isBusy() が永久true になり更新が止まる
     _syncing=true;
     // 各テーブルを独立してupsert。1つ失敗しても他テーブルの同期は継続する。
+    // DBに無い列（新機能の列をまだSQLで足していない等）は自動で外して再送する。
+    // ※これをしないと、そのテーブルの保存が丸ごと静かに失敗し続ける。
     const one=async (table, rows)=>{
       const changed=_changedRows(table, rows);
       if(!changed.length) return;                 // 変更なし → 何も送らない（他端末の更新を壊さない）
-      try{
-        const oc=_ONCONFLICT[table];
-        const { error }=await (oc ? sb.from(table).upsert(changed, {onConflict:oc}) : sb.from(table).upsert(changed));
-        if(error){ console.warn('[sync]',table,error.message); return; }
-        markSynced(table, changed);               // 成功した行だけ「送信済み」に記録
+      const oc=_ONCONFLICT[table];
+      for(let attempt=0; attempt<8; attempt++){
+        try{
+          const payload=_stripMissingCols(table, changed);
+          const { error }=await (oc ? sb.from(table).upsert(payload, {onConflict:oc}) : sb.from(table).upsert(payload));
+          if(!error){ markSynced(table, changed); return; }   // 成功した行だけ「送信済み」に記録
+          const col=_unknownColumn(error);
+          if(col && !_isMissingCol(table,col)){ _rememberMissingCol(table, col); continue; }
+          console.warn('[sync]',table,error.message); return;
+        }
+        catch(e){ console.warn('[sync]',table,e&&e.message); return; }
       }
-      catch(e){ console.warn('[sync]',table,e&&e.message); }
     };
     try{
       await one('agencies', DB.agencies.map(toAgency));
@@ -1105,15 +1140,21 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
      戻り値: null=成功 / {duplicate:true}=電話番号の重複 / {message}=その他のエラー */
   async function insertReferral(r){
     if(!sb) return null;   // デモ等
-    try{
-      const row=toRef(r);
-      const { error } = await sb.from('referrals').insert(row);
-      if(!error){ markSynced('referrals',[row]); return null; }
-      const msg=(error.message||'')+' '+(error.details||'');
-      // 23505 = unique_violation（電話番号の一意制約）
-      if(error.code==='23505' || /duplicate key|uniq_referrals_phone/i.test(msg)) return {duplicate:true};
-      return {message: error.message||'保存に失敗しました'};
-    }catch(e){ return {message:(e&&e.message)||'保存に失敗しました'}; }
+    const row=toRef(r);
+    for(let attempt=0; attempt<8; attempt++){
+      try{
+        const { error } = await sb.from('referrals').insert(_stripMissingCols('referrals',[row])[0]);
+        if(!error){ markSynced('referrals',[row]); return null; }
+        const msg=(error.message||'')+' '+(error.details||'');
+        // 23505 = unique_violation（電話番号の一意制約）
+        if(error.code==='23505' || /duplicate key|uniq_referrals_phone/i.test(msg)) return {duplicate:true};
+        // DBに無い列は外して再試行（新項目の列を未追加でも登録自体は通す）
+        const col=_unknownColumn(error);
+        if(col && !_isMissingCol('referrals',col)){ _rememberMissingCol('referrals', col); continue; }
+        return {message: error.message||'保存に失敗しました'};
+      }catch(e){ return {message:(e&&e.message)||'保存に失敗しました'}; }
+    }
+    return {message:'保存に失敗しました'};
   }
   /* ── 二次パートナー向け「閲覧リンク」──────────────────────────────
      パスワードの照合とデータ取得はすべてサーバー側(RPC)で行う。
@@ -1522,6 +1563,16 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
 })();
 
 const LS_KEY = 'kanoa_relay_v22';
+/* DBに無い列を検知したときの通知（同じ列は1回だけ・KANOAにだけ画面表示） */
+const _missingColNoticed = new Set();
+function notifyMissingColumn(table, col){
+  const key=table+'.'+col;
+  if(_missingColNoticed.has(key)) return;
+  _missingColNoticed.add(key);
+  if(S && S.role==='kanoa' && typeof toast==='function'){
+    setTimeout(()=>toast(`データベースに ${table}.${col} 列がありません。この項目は保存されません（管理者にSQLの実行を依頼してください）`), 400);
+  }
+}
 const yen = n => '¥' + (n||0).toLocaleString('ja-JP');
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function html(strings, ...values) {
@@ -1632,9 +1683,9 @@ function toggleReaction(msgId, emoji){ const m=DB.messages.find(x=>x.id===msgId)
 function selData(refs){
   const N=refs.length||0;
   const reach=set=>refs.filter(r=>set.includes(r.status)).length;
-  const docPass=reach(['interview','offer','joined']);
-  const offer=reach(['offer','joined']);
-  const joined=reach(['joined']);
+  const docPass=reach(['interview','offer','joined','resigned']);
+  const offer=reach(['offer','joined','resigned']);
+  const joined=reach(['joined','resigned']);
   const pct=(a)=>N?Math.round(a/N*100):0;
   return {N, docPass, offer, joined, docRate:pct(docPass), offerRate:pct(offer), joinRate:pct(joined)};
 }
@@ -1700,7 +1751,7 @@ function docStat(r){ const set=docSet(r); return { rireki:set.has('履歴書'), 
 function docFlags(r){ const s=docStat(r);
   let base=`<span class="docflag ${s.rireki?'on':''}" title="履歴書">履</span><span class="docflag ${s.shoku?'on':''}" title="職務経歴書">職</span>`;
   // 内定以降は内定後書類のフラグも表示
-  if(r.status==='offer'||r.status==='joined'){
+  if(r.status==='offer'||hasJoined(r)){
     const req=stageReq(r.pj,'offer');
     if(req){ base+=`<span class="docflag ${s.gensen?'on':''}" title="源泉徴収票">源</span><span class="docflag ${s.kyuyo?'on':''}" title="給与明細">給</span>`; }
   }
@@ -1941,10 +1992,44 @@ const STATUS = {
   interview:  {label:'選考会',   cls:'interview'},
   offer:      {label:'内定',     cls:'offer'},
   joined:     {label:'入社',     cls:'joined'},
+  resigned:   {label:'早期退職', cls:'resigned'},
   rejected:   {label:'見送り',   cls:'rejected'},
   declined:   {label:'辞退',     cls:'declined'},
 };
-const STATUS_ORDER = ['entry','screening','interview','offer','joined','rejected','declined'];
+const STATUS_ORDER = ['entry','screening','interview','offer','joined','resigned','rejected','declined'];
+/* 選考パイプラインの5段階（早期退職・見送り・辞退は「段階」ではないので含めない） */
+const PIPELINE_STAGES = ['entry','screening','interview','offer','joined'];
+/* 「入社した人か」＝入社 or 早期退職。早期退職者も一度は入社しているので、
+   入社者数・成果報酬・請求・返金などの集計では入社扱いにする。 */
+function hasJoined(r){ return !!r && (r.status==='joined' || r.status==='resigned'); }
+/* 「退職しているか」＝退職記録あり or ステータスが早期退職。在籍中の判定に使う。 */
+function isResignedRef(r){ return !!r && (!!r.resigned || r.status==='resigned'); }
+/* 不明なステータスでも落ちないようにするフォールバック */
+function statusDef(s){ return STATUS[s] || {label:String(s||'—'), cls:'entry'}; }
+
+/* ════════════════════ 支払ステータス（送客1件ごと） ════════════════════
+   選考ステータスとは別軸で、紹介料の入出金がどこまで進んだかを持つ。
+   未設定（''）のときは請求・返金の状態から自動判定する（payStatusOf）。 */
+const PAY_STATUS = {
+  pending:  { label:'支払待ち',       color:'#B45309', bg:'#FDF2E2' },
+  paid:     { label:'紹介料支払済み', color:'#15803D', bg:'#E8F6EE' },
+  refunded: { label:'返金済み',       color:'#BE123C', bg:'#FDEEF1' },
+};
+const PAY_ORDER = ['pending','paid','refunded'];
+/* 手入力があればそれを、無ければ請求書の状態から自動判定する */
+function payStatusOf(r){
+  if(!r) return '';
+  if(r.payStatus && PAY_STATUS[r.payStatus]) return r.payStatus;
+  const invs = (DB.invoices||[]).filter(v=>(v.items||[]).some(it=>it.refId===r.id));
+  if(invs.some(v=>v.kind==='refund' && v.status==='paid')) return 'refunded';
+  if(invs.some(v=>v.kind!=='refund' && v.status==='paid')) return 'paid';
+  if(hasJoined(r) && refEarning(r)>0) return 'pending';
+  return '';
+}
+function payStatusBadge(r, style){
+  const k=payStatusOf(r); const x=PAY_STATUS[k]; if(!x) return '';
+  return `<span class="tag" style="background:${x.bg};color:${x.color};font-weight:600;${style||''}">${x.label}</span>`;
+}
 
 function seed(){
   // 送客を先に生成してIDを保持（メッセージのスレッド紐付けに使う）
@@ -2225,8 +2310,10 @@ function agCode(a){ const ag = typeof a==='string'?agency(a):a; return (ag&&ag.c
 const project = id => DB.projects.find(p=>p.id===id);
 const assignment = (pj,ag) => DB.assignments.find(x=>x.pj===pj && x.ag===ag);
 function effReward(pj,ag){
+  // 案件が見つからない（削除済み・未同期）場合でも落ちないよう0を返す
   const p=project(pj);
-  return { ref:p.referralReward, suc:p.successReward };
+  if(!p) return { ref:0, suc:0 };
+  return { ref:+p.referralReward||0, suc:+p.successReward||0 };
 }
 /* 楽天：基本給はエリアで変わる。基本給×14×30%＝KANOA受領、その85%＝各社報酬 */
 function baseSalaryFor(r){
@@ -2268,10 +2355,11 @@ function refEarning(r){
   const e = effReward(r.pj, r.ag);
   let total = 0;
   const p = project(r.pj);
+  if(!p) return 0;
   if(r.status!=='rejected'){
     if(p.rewardType==='referral' || p.rewardType==='both') total += e.ref;
   }
-  if(r.status==='joined'){
+  if(hasJoined(r)){   // 早期退職者も一度は入社しているので成功報酬は発生している
     if(p.rewardType==='success' || p.rewardType==='both') total += successRewardFor(r);
   }
   return total;
@@ -2280,11 +2368,11 @@ function splitEarn(refs){
   let confirmed=0, pipeline=0;
   refs.forEach(r=>{
     const p=project(r.pj), e=effReward(r.pj,r.ag);
-    if(r.status==='rejected') return;
+    if(!p || r.status==='rejected') return;
     if(p.rewardType==='referral'||p.rewardType==='both') confirmed+=e.ref;
     if(p.rewardType==='success'||p.rewardType==='both'){
       const suc=successRewardFor(r);
-      if(r.status==='joined') confirmed+=suc; else pipeline+=suc;
+      if(hasJoined(r)) confirmed+=suc; else pipeline+=suc;
     }
   });
   return {confirmed, pipeline};
@@ -2517,18 +2605,25 @@ function enterApp(){
   document.getElementById('loginWrap').style.display='none';
   document.getElementById('app').classList.add('on');
   const isK = S.role==='kanoa';
-  document.getElementById('sideRole').textContent = isK?'ADMIN':'AGENCY';
+  document.getElementById('sideRole').textContent = isK?'ADMIN':(S.role==='sub'?'PARTNER':'AGENCY');
   const nav = document.getElementById('nav');
   nav.innerHTML = navFor(S.role).map(n=>`<button class="nav-item" data-act="nav" data-view="${n.v}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${n.icon}</svg>${n.label}<span class="nav-count" data-navcount="${n.v}"></span></button>`).join('');
   if(isK){
     document.getElementById('userAvatar').textContent='K';
     document.getElementById('userName').textContent='KANOA 管理者';
     document.getElementById('userSub').textContent='全案件・全パートナー';
+  } else if(S.role==='sub'){
+    // 二次パートナーは agencyId を持たない。ここで agency() を引くと落ちて画面が真っ白になる。
+    const nm=S.subCompany||'パートナー';
+    const parent=agency(S.parentAg);
+    document.getElementById('userAvatar').textContent=nm.slice(0,1);
+    document.getElementById('userName').textContent=nm;
+    document.getElementById('userSub').textContent=(parent?parent.name:'')||'紹介した方の進捗確認';
   } else {
-    const a=agency(S.agencyId);
+    const a=agency(S.agencyId)||{};
     document.getElementById('userAvatar').textContent=(a.name||'A').slice(0,1);
-    document.getElementById('userName').textContent=a.name;
-    document.getElementById('userSub').textContent=agCode(a)+(a.contact?' · '+a.contact:'');
+    document.getElementById('userName').textContent=a.name||S.agencyId||'パートナー';
+    document.getElementById('userSub').textContent=(a.id?agCode(a):'')+(a.contact?' · '+a.contact:'');
   }
   go(S.view);
   const sd=document.getElementById('sideDev'); if(sd) sd.style.display=(DEMO_MODE && S.role==='kanoa')?'':'none';
@@ -2863,9 +2958,9 @@ function setHeader(title, sub, actions){
 }
 
 /* ───── shared bits ───── */
-function statusBadge(s){ const st=STATUS[s]; return `<span class="badge bd-${st.cls}">${st.label}</span>`; }
+function statusBadge(s){ const st=statusDef(s); return `<span class="badge bd-${st.cls}">${esc(st.label)}</span>`; }
 function statusSelect(s, attrs){
-  return `<select class="icell stsel st-${STATUS[s].cls}" ${attrs}>`+
+  return `<select class="icell stsel st-${statusDef(s).cls}" ${attrs}>`+
     STATUS_ORDER.map(k=>`<option value="${k}" ${k===s?'selected':''}>${STATUS[k].label}</option>`).join('')+`</select>`;
 }
 function kpi(label,val,dotColor,delta){
@@ -2873,9 +2968,11 @@ function kpi(label,val,dotColor,delta){
     <div class="kpi-val">${val}</div>${delta?`<div class="kpi-delta">${delta}</div>`:''}</div>`;
 }
 function funnel(refs){
-  const c = {}; STATUS_ORDER.forEach(s=>c[s]=0); refs.forEach(r=>c[r.status]++);
-  const active = refs.filter(r=>r.status!=='rejected').length || 1;
-  return STATUS_ORDER.filter(s=>s!=='rejected').map(s=>{
+  // ファネルは選考の5段階だけを並べる（見送り・辞退・早期退職は「段階」ではない）
+  const c = {}; STATUS_ORDER.forEach(s=>c[s]=0); refs.forEach(r=>{ if(c[r.status]!=null) c[r.status]++; });
+  c.joined += c.resigned;   // 早期退職者も入社は通過している
+  const active = refs.filter(r=>r.status!=='rejected'&&r.status!=='declined').length || 1;
+  return PIPELINE_STAGES.map(s=>{
     const pct = Math.round(c[s]/active*100);
     return `<div style="margin-bottom:11px">
       <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px">
@@ -2891,11 +2988,11 @@ function viewOverview(){
   setHeader('概要', 'KANOA 案件配信の全体サマリー');
   const refs = DB.referrals;
   const sent = refs.filter(r=>r.status!=='rejected').length;
-  const joined = refs.filter(r=>r.status==='joined').length;
+  const joined = refs.filter(hasJoined).length;
   const earn = refs.reduce((s,r)=>s+refEarning(r),0);
   const pending = DB.agencies.filter(a=>a.status==='pending').length;
   const newEntries = refs.filter(r=>r.status==='entry').length;
-  const upcoming = refs.filter(r=>r.session && r.session!=='—' && !['joined','rejected'].includes(r.status)).length;
+  const upcoming = refs.filter(r=>r.session && r.session!=='—' && !['joined','resigned','rejected','declined'].includes(r.status)).length;
   const unread = unreadKanoa();
   const openTasksN = openTaskCount();
   const todo = newEntries+unread+openTasksN;
@@ -2942,7 +3039,7 @@ function agencySummaryTable(){
   const rows = DB.agencies.filter(a=>a.status==='active').map(a=>{
     const rs = agencyReferrals(a.id);
     const sent = rs.filter(r=>r.status!=='rejected').length;
-    const joined = rs.filter(r=>r.status==='joined').length;
+    const joined = rs.filter(hasJoined).length;
     const earn = rs.reduce((s,r)=>s+refEarning(r),0);
     return {a, sent, joined, earn};
   }).sort((x,y)=>y.earn-x.earn);
@@ -2981,7 +3078,7 @@ function viewProjects(){
       <div class="pj-stats">
         <div><div class="pj-stat-v">${pubCount}</div><div class="pj-stat-l">公開先 パートナー</div></div>
         <div><div class="pj-stat-v">${refs.filter(r=>r.status!=='rejected').length}</div><div class="pj-stat-l">送客数</div></div>
-        <div><div class="pj-stat-v" style="color:var(--g)">${refs.filter(r=>r.status==='joined').length}</div><div class="pj-stat-l">入社</div></div>
+        <div><div class="pj-stat-v" style="color:var(--g)">${refs.filter(hasJoined).length}</div><div class="pj-stat-l">入社</div></div>
       </div>
     </div>`;
   }).join('')}</div>`;
@@ -3103,7 +3200,7 @@ function viewAgencies(){
   html += `<div class="sect"><div class="sect-head"><div class="sect-title">提携パートナー</div></div>
     <div class="panel tbl-wrap"><table class="tbl"><thead><tr><th>パートナー</th><th>ID</th><th>担当 / 連絡先</th><th class="num">送客</th><th class="num">入社</th><th class="num">成果報酬</th><th>状態</th><th></th></tr></thead><tbody>
     ${active.map(a=>{
-      const rs=agencyReferrals(a.id); const sent=rs.filter(r=>r.status!=='rejected').length; const joined=rs.filter(r=>r.status==='joined').length; const earn=rs.reduce((s,r)=>s+refEarning(r),0);
+      const rs=agencyReferrals(a.id); const sent=rs.filter(r=>r.status!=='rejected').length; const joined=rs.filter(hasJoined).length; const earn=rs.reduce((s,r)=>s+refEarning(r),0);
       return `<tr>
         <td><button data-act="open-agency" data-id="${a.id}" style="display:flex;align-items:center;gap:9px;border:none;background:none;cursor:pointer;text-align:left;padding:0">${agAvatar(a,30)}<span class="cell-strong" style="color:var(--ink)">${esc(a.name)}</span></button></td>
         <td class="mono cell-sub">${agCode(a)}</td>
@@ -3118,15 +3215,15 @@ function viewAgencies(){
 }
 
 /* ════════════════════ KANOA: REFERRALS (cross) ════════════════════ */
-let rFilter={status:'',pj:'',ag:'',q:'',docMode:'all',sessTbd:false,sessFrom:'',sessTo:'',joinFrom:'',joinTo:'',joinMode:'all',crFrom:'',crTo:'',area:''}, rSort={k:'',d:1};
+let rFilter={status:'',pj:'',ag:'',q:'',docMode:'all',sessTbd:false,sessFrom:'',sessTo:'',joinFrom:'',joinTo:'',joinMode:'all',crFrom:'',crTo:'',area:'',pay:''}, rSort={k:'',d:1};
 let rFilterOpen=false; let rSel=new Set();
 let myRefTab='all';   // 自社の送客：ステータス絞り込み
 function sessionISO(r){ const s=(r.session||'').trim(); if(!s||s==='—') return '';
   let m=s.match(/(\d{4})-(\d{1,2})-(\d{1,2})/); if(m) return `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`;
   m=s.match(/(\d{1,2})[\/月](\d{1,2})/); if(m){ const y=new Date().getFullYear(); return `${y}-${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`; }
   return ''; }
-function rFilterActive(){ return rFilter.docMode!=='all'||rFilter.sessTbd||rFilter.sessFrom||rFilter.sessTo||rFilter.joinFrom||rFilter.joinTo||rFilter.joinMode!=='all'||rFilter.crFrom||rFilter.crTo||rFilter.area; }
-function clearRFilter(){ rFilter.docMode='all';rFilter.sessTbd=false;rFilter.sessFrom='';rFilter.sessTo='';rFilter.joinFrom='';rFilter.joinTo='';rFilter.joinMode='all';rFilter.crFrom='';rFilter.crTo='';rFilter.area=''; }
+function rFilterActive(){ return rFilter.docMode!=='all'||rFilter.sessTbd||rFilter.sessFrom||rFilter.sessTo||rFilter.joinFrom||rFilter.joinTo||rFilter.joinMode!=='all'||rFilter.crFrom||rFilter.crTo||rFilter.area||rFilter.pay; }
+function clearRFilter(){ rFilter.docMode='all';rFilter.sessTbd=false;rFilter.sessFrom='';rFilter.sessTo='';rFilter.joinFrom='';rFilter.joinTo='';rFilter.joinMode='all';rFilter.crFrom='';rFilter.crTo='';rFilter.area='';rFilter.pay=''; }
 function anyRFilter(){ return !!(rFilter.status||rFilter.pj||rFilter.ag||rFilter.q) || rFilterActive(); }
 function clearAllRFilter(){ rFilter.status='';rFilter.pj='';rFilter.ag='';rFilter.q=''; clearRFilter(); }
 function viewReferrals(){
@@ -3159,6 +3256,7 @@ function refFilterPanel(){
         <select class="fsel" id="fJoinMode">${opt('all',rFilter.joinMode,'入社状況：すべて')}${opt('joined',rFilter.joinMode,'入社済みのみ')}${opt('notjoined',rFilter.joinMode,'未入社のみ')}</select></div>
       <div class="fp-field"><label>送客日</label><div class="fp-range"><input type="date" id="fCrFrom" value="${esc(rFilter.crFrom)}"><span>〜</span><input type="date" id="fCrTo" value="${esc(rFilter.crTo)}"></div></div>
       <div class="fp-field"><label>希望エリア</label><select id="fArea"><option value="">すべて</option>${PREFECTURES.map(p=>`<option value="${esc(p)}"${p===rFilter.area?' selected':''}>${esc(p)}</option>`).join('')}</select></div>
+      <div class="fp-field"><label>支払ステータス</label><select class="fsel" id="fPay"><option value="">すべて</option>${PAY_ORDER.map(k=>`<option value="${k}"${rFilter.pay===k?' selected':''}>${PAY_STATUS[k].label}</option>`).join('')}<option value="none"${rFilter.pay==='none'?' selected':''}>未設定</option></select></div>
       <div class="fp-field"><label>資料</label><select class="fsel" id="fDoc">${opt('all',rFilter.docMode,'すべて')}${opt('missing',rFilter.docMode,'未提出（履歴書か職務経歴書なし）')}${opt('norireki',rFilter.docMode,'履歴書なし')}${opt('noshoku',rFilter.docMode,'職務経歴書なし')}${opt('both',rFilter.docMode,'両方あり')}</select></div>
     </div>
     <div class="fp-foot"><span class="cell-sub" id="fpCount"></span><button class="btn btn-ghost btn-sm" data-act="rfilter-clear">詳細条件をクリア</button></div>
@@ -3191,7 +3289,9 @@ function refFiltered(){
   if(rFilter.crTo) rows=rows.filter(r=>(r.created||'').slice(0,10)<=rFilter.crTo);
   // エリア
   if(rFilter.area){ const a=rFilter.area.toLowerCase(); rows=rows.filter(r=>(r.area||'').toLowerCase().includes(a)); }
-  if(rSort.k){ rows.sort((a,b)=>{ let x,y; if(rSort.k==='status'){x=STATUS_ORDER.indexOf(a.status);y=STATUS_ORDER.indexOf(b.status);} else if(rSort.k==='ag'){x=agency(a.ag).name;y=agency(b.ag).name;} else {x=a[rSort.k]||'';y=b[rSort.k]||'';} return x<y?-1*rSort.d:x>y?rSort.d:0; }); }
+  // 支払ステータス
+  if(rFilter.pay){ rows=rows.filter(r=>{ const k=payStatusOf(r); return rFilter.pay==='none' ? !k : k===rFilter.pay; }); }
+  if(rSort.k){ rows.sort((a,b)=>{ let x,y; if(rSort.k==='status'){x=STATUS_ORDER.indexOf(a.status);y=STATUS_ORDER.indexOf(b.status);} else if(rSort.k==='ag'){x=(agency(a.ag)||{}).name||a.ag||'';y=(agency(b.ag)||{}).name||b.ag||'';} else {x=a[rSort.k]||'';y=b[rSort.k]||'';} return x<y?-1*rSort.d:x>y?rSort.d:0; }); }
   return rows;
 }
 function renderRefChips(){
@@ -3246,7 +3346,7 @@ function referralTable(rows, opt={}){
       <td><button class="copy-btn" style="padding:5px 7px" data-act="open-ref" data-id="${r.id}" title="個人情報"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg></button></td>
       <td class="cell-strong">${(S.role==='kanoa'&&r.seenK===false)?`<span class="tag" style="background:var(--r);color:#fff;font-size:9px;font-weight:700;padding:1px 6px;margin-right:5px;vertical-align:1px">NEW</span>`:''}${ed?`<input class="icell icell-name" value="${esc(r.name)}" data-act="edit-ref" data-id="${r.id}" data-f="name">`:esc(r.name)}${crossDupBadge(r)}<div class="cell-sub" style="padding-left:${ed?'8px':'0'}">${esc(r.area||'')}</div></td>
       ${opt.showAgency?`<td>${esc(a?a.name:r.ag)}</td>`:''}
-      <td><span class="tag" style="font-size:10.5px">${esc(p?p.name.replace(' パートナー送客',''):r.pj)}</span></td>
+      <td><span class="tag" style="font-size:10.5px" title="${esc(p?p.name:r.pj)}">${esc(shortPjName(r.pj))}</span></td>
       <td>${ed?statusSelect(r.status,`data-act="edit-ref" data-id="${r.id}" data-f="status"`):statusBadge(r.status)}</td>
       <td>${ed?`<input class="icell" style="font-family:var(--mono);font-size:12px;max-width:80px" value="${r.session==='—'?'':esc(r.session)}" placeholder="7/18" data-act="edit-ref" data-id="${r.id}" data-f="session">`:`<span class="mono cell-sub">${esc(r.session)}</span>`}</td>
       <td><span class="mono cell-sub">${esc((r.created||'').slice(5)||'—')}</span></td>
@@ -3254,7 +3354,7 @@ function referralTable(rows, opt={}){
         ?`<input type="month" class="icell" style="font-family:var(--mono);font-size:12px;max-width:120px" value="${r.joined?esc(r.joined.slice(0,7)):''}" data-act="edit-ref" data-id="${r.id}" data-f="joinedMonth">`
         :(r.joined?`<span class="tag" style="background:var(--g-bg);color:var(--g);font-size:11px">${joinedM(r)}</span>`:'<span class="cell-sub">—</span>')}</td>
       <td><button data-act="open-ref" data-id="${r.id}" style="border:none;background:none;cursor:pointer;padding:0;white-space:nowrap">${docFlags(r)}</button></td>
-      <td class="num">${earn?yen(earn):'<span class="cell-sub">—</span>'}</td>
+      <td class="num">${earn?yen(earn):'<span class="cell-sub">—</span>'}${(()=>{const b=payStatusBadge(r,'font-size:10px');return b?`<div style="margin-top:3px">${b}</div>`:'';})()}</td>
       <td>${nextActionCell(r)}</td>
       <td style="text-align:center">${(()=>{ const viewer=S.role==='kanoa'?'kanoa':'agency'; const un=subUnread(r.ag, r.id, viewer); return `<button class="ref-chat-btn" data-act="open-cand-thread" data-ag="${r.ag}" data-ref="${r.id}" title="${esc(r.name)}さんの連絡を開く"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>${un?`<span class="ref-chat-un">${un}</span>`:''}</button>`; })()}</td>
     </tr>`;
@@ -3267,7 +3367,7 @@ function viewEarnings(){
   setHeader('成果・報酬', '案件×パートナーの成約と成果報酬',
     `<button class="btn btn-ghost btn-sm" data-act="export-earn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>CSV出力</button>`);
   const totalEarn = DB.referrals.reduce((s,r)=>s+refEarning(r),0);
-  const joined = DB.referrals.filter(r=>r.status==='joined').length;
+  const joined = DB.referrals.filter(hasJoined).length;
   const sent = DB.referrals.filter(r=>r.status!=='rejected').length;
   const sp = splitEarn(DB.referrals);
   const c=document.getElementById('content');
@@ -3300,7 +3400,7 @@ function earnRows(){
       if(!rs.length) return;
       const sent=rs.filter(r=>r.status!=='rejected').length;
       const mid=rs.filter(r=>['screening','interview','offer'].includes(r.status)).length;
-      const joined=rs.filter(r=>r.status==='joined').length;
+      const joined=rs.filter(hasJoined).length;
       const e=effReward(p.id,a.id);
       const refRew=(p.rewardType==='referral'||p.rewardType==='both')?sent*e.ref:0;
       const sucRew=(p.rewardType==='success'||p.rewardType==='both')?joined*e.suc:0;
@@ -3402,7 +3502,7 @@ function viewAgencyProjects(){
           : `<strong>${yen(e.ref)}</strong>/送客${p.rewardType==='both'?` ＋ ${yen(e.suc)}/入社`:''}`}</div>
       <div class="pj-stats"><div><div class="pj-stat-v">${sd.docRate}%</div><div class="pj-stat-l">書類通過率</div></div>
         <div><div class="pj-stat-v">${mine.filter(r=>r.status!=='rejected').length}</div><div class="pj-stat-l">自社の送客</div></div>
-        <div><div class="pj-stat-v" style="color:var(--g)">${mine.filter(r=>r.status==='joined').length}</div><div class="pj-stat-l">入社</div></div></div>
+        <div><div class="pj-stat-v" style="color:var(--g)">${mine.filter(hasJoined).length}</div><div class="pj-stat-l">入社</div></div></div>
     </div>`;
   }).join('')}</div>`;
 }
@@ -3447,11 +3547,11 @@ function viewMyRefs(){
     `<button class="btn btn-ghost btn-sm" data-act="bulk-import-wizard" style="margin-right:8px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>一括登録</button><button class="btn btn-primary btn-sm" data-act="bulk-open"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>候補者へ一括送信</button>`);
   const all=agencyReferrals(S.agencyId);
   const cnt=k=>k==='all'?all.length:
-             k==='active'?all.filter(r=>r.status!=='rejected'&&r.status!=='declined'&&r.status!=='joined').length:
+             k==='active'?all.filter(r=>r.status!=='rejected'&&r.status!=='declined'&&!hasJoined(r)).length:
              k==='out'?all.filter(r=>r.status==='rejected'||r.status==='declined').length:
              all.filter(r=>r.status===k).length;
   const pick=k=>k==='all'?all:
-               k==='active'?all.filter(r=>r.status!=='rejected'&&r.status!=='declined'&&r.status!=='joined'):
+               k==='active'?all.filter(r=>r.status!=='rejected'&&r.status!=='declined'&&!hasJoined(r)):
                k==='out'?all.filter(r=>r.status==='rejected'||r.status==='declined'):
                all.filter(r=>r.status===k);
   const rows=pick(myRefTab);
@@ -3467,12 +3567,12 @@ function viewMyEarn(){
   setHeader('成果・報酬', '貴社の成約と成果報酬の見込み');
   const rows=agencyReferrals(S.agencyId);
   const sent=rows.filter(r=>r.status!=='rejected').length;
-  const joined=rows.filter(r=>r.status==='joined').length;
+  const joined=rows.filter(hasJoined).length;
   const earn=rows.reduce((s,r)=>s+refEarning(r),0);
   const sp=splitEarn(rows);
   // ── 月次の成果報酬グラフ（KANOA収支と同じ見やすいデザインを採用）──
   const months=[...Array(6)].map((_,i)=>{const d=new Date();d.setMonth(d.getMonth()-(5-i));return d.toISOString().slice(0,7);});
-  const joinedRows=rows.filter(r=>r.status==='joined');
+  const joinedRows=rows.filter(hasJoined);
   const earnM=months.map(m=>joinedRows.filter(r=>(r.joined||'').slice(0,7)===m).reduce((s,r)=>s+(refEarning(r)||0),0));
   const cntM=months.map(m=>joinedRows.filter(r=>(r.joined||'').slice(0,7)===m).length);
   const maxE=Math.max(1,...earnM);
@@ -3501,7 +3601,7 @@ function viewMyEarn(){
       <div class="panel" style="padding:14px 16px 8px">${earnChart}</div></div>
     <div class="sect"><div class="sect-head"><div class="sect-title">送客ごとの内訳</div></div>
       <div class="panel tbl-wrap"><table class="tbl"><thead><tr><th>氏名</th><th>案件</th><th>ステータス</th><th class="num">報酬</th></tr></thead><tbody>
-      ${rows.map(r=>`<tr><td class="cell-strong">${esc(r.name)}</td><td><span class="tag" style="font-size:10.5px">${esc(project(r.pj).name.replace(' パートナー送客',''))}</span></td><td>${statusBadge(r.status)}</td><td class="num">${refEarning(r)?yen(refEarning(r)):'<span class="cell-sub">—</span>'}</td></tr>`).join('')}
+      ${rows.map(r=>`<tr><td class="cell-strong">${esc(r.name)}</td><td><span class="tag" style="font-size:10.5px">${esc(shortPjName(r.pj))}</span></td><td>${statusBadge(r.status)}${payStatusBadge(r,'margin-left:6px')}</td><td class="num">${refEarning(r)?yen(refEarning(r)):'<span class="cell-sub">—</span>'}</td></tr>`).join('')}
       </tbody></table></div></div></div>`;
 }
 
@@ -3689,7 +3789,7 @@ function subThreadNav(ag, viewer, curRef){
     const needDocs = (r.status==='entry'||r.status==='screening') && !(ds.rireki&&ds.shoku);
     html+=`<button class="cand-item ${on?'on':''}" data-act="open-subthread" data-ag="${ag}" data-ref="${rid}">
       <span class="ci-dot" style="background:${stColor}"></span>
-      <span class="ci-main"><span class="ci-name">${esc(r.name)}${un?`<span style="display:inline-block;margin-left:6px;padding:0px 6px;border-radius:999px;background:var(--r);color:#fff;font-size:9px;font-weight:700;vertical-align:1px">New</span>`:''}</span><span class="ci-sub">${esc(shortPjName(r.pj))} · ${STATUS[r.status].label}</span></span>
+      <span class="ci-main"><span class="ci-name">${esc(r.name)}${un?`<span style="display:inline-block;margin-left:6px;padding:0px 6px;border-radius:999px;background:var(--r);color:#fff;font-size:9px;font-weight:700;vertical-align:1px">New</span>`:''}</span><span class="ci-sub">${esc(shortPjName(r.pj))} · ${esc(statusDef(r.status).label)}</span></span>
       ${needDocs?`<span class="ci-flag" title="書類が未提出"></span>`:''}
       ${un?`<span class="ci-un">${un}</span>`:''}
     </button>`;
@@ -3721,15 +3821,21 @@ function nextActionHint(r, viewer){
       return { b:'内定 — 入社日を確定', s:'必要書類は回収済み。条件のすり合わせを', act:K?{label:'入社で確定',a:'set-ref-status',ref:r.id,s:'joined'}:null };
     case 'joined':
       return { b:`入社済み ${joinedYM(r)}`, s:'入社後フォロー', act:null };
+    case 'resigned':
+      return { b:'早期退職', s:'返金規定の確認と手続きを', act:null };
     case 'rejected':
       return { b:'見送り', s:'このスレッドはクローズ', act:null };
+    case 'declined':
+      return { b:'辞退', s:'このスレッドはクローズ', act:null };
   }
   return null;
 }
 
 function stageMark(r, i){
   // 各段階の状態を判定：'pass'(○=通過) / 'fail'(✕=未通過) / 'blank'(空白=未到達)
-  const stages = ['entry','screening','interview','offer','joined'];
+  const stages = PIPELINE_STAGES;
+  // 早期退職は「入社まで通過したあとの退職」なので、入社まで全て通過扱いにする
+  if(r.status==='resigned') return 'pass';
   if(r.status==='rejected'){
     const failIdx = stages.indexOf(r.failAt||'');
     if(failIdx<0) return 'blank';           // 落選段階が未記録
@@ -3742,10 +3848,11 @@ function stageMark(r, i){
 }
 
 function pipelineStepper(r, viewer){
-  const stages = ['entry','screening','interview','offer','joined'];
+  const stages = PIPELINE_STAGES;
   const editable = viewer==='kanoa';        // 管理者(KANOA)のみ選択可・パートナーは表示のみ
-  // 現在地（到達済みの最終段階）
-  const curIdx = r.status==='rejected' ? stages.indexOf(r.failAt||'') : stages.indexOf(r.status);
+  // 現在地（到達済みの最終段階）。早期退職は入社まで到達済みとして扱う
+  const curIdx = r.status==='rejected' ? stages.indexOf(r.failAt||'')
+               : (r.status==='resigned' ? stages.indexOf('joined') : stages.indexOf(r.status));
   let h = `<div class="cmd-pipe ${editable?'editable':''}">`;
   stages.forEach((s,i)=>{
     const mark = stageMark(r, i);           // 'pass' / 'fail' / 'blank'
@@ -3791,7 +3898,7 @@ function threadCtxHeader(ag, viewer, curRef){
   };
   // 現在のステージで必要な書類チップを出し分け
   let docChips='';
-  if(r.status==='offer'||r.status==='joined'){
+  if(r.status==='offer'||hasJoined(r)){
     const req=stageReq(r.pj,'offer');
     if(req){
       (req.required||[]).forEach(k=>{ docChips+=docChip(k, ds.has(k)); });
@@ -3878,9 +3985,9 @@ function renderConversation(ag, viewer){
     <div class="chat">
     <div class="chat-head">
       ${viewer==='kanoa'?`<button class="chat-back" data-act="back-threads"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button>`:''}
-      <div class="thread-av" style="width:34px;height:34px;font-size:13px;background:${viewer==='kanoa'?agColor(ag):'var(--ink)'}">${esc((viewer==='kanoa'?a.name:'K').slice(0,1))}</div>
-      <div style="flex:1"><div style="font-weight:700;font-size:14px">${viewer==='kanoa'?esc(a.name):'KANOA 事務局'}</div>
-        <div style="font-size:11px;color:var(--muted)">${viewer==='kanoa'?esc(agCode(a))+' · メンバー'+orgMembers(ag).length+'名':'KANOA 事務局 · 担当'+orgMembers('kanoa').length+'名'}</div></div>
+      <div class="thread-av" style="width:34px;height:34px;font-size:13px;background:${viewer==='kanoa'?agColor(ag):'var(--ink)'}">${esc((viewer==='kanoa'?((a&&a.name)||ag||'?'):'K').slice(0,1))}</div>
+      <div style="flex:1"><div style="font-weight:700;font-size:14px">${viewer==='kanoa'?esc((a&&a.name)||ag||''):'KANOA 事務局'}</div>
+        <div style="font-size:11px;color:var(--muted)">${viewer==='kanoa'?esc(a?agCode(a):ag||'')+' · メンバー'+orgMembers(ag).length+'名':'KANOA 事務局 · 担当'+orgMembers('kanoa').length+'名'}</div></div>
       <button class="thread-ctx-btn" data-act="bulk-open" title="候補者へ一括送信" style="margin-left:auto"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;vertical-align:-2px"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>一括送信</button>
     </div>
     ${threadCtxHeader(ag, viewer, curRef)}
@@ -4593,6 +4700,8 @@ function openRefDrawer(id){
   const r=DB.referrals.find(x=>x.id===id); if(!r) return;
   // 二次パートナーは自分が紹介した方のみ閲覧可（他人の候補者はガード）
   if(S.role==='sub' && !(r.ag===S.parentAg && (r.src||'').trim()===S.subCompany)){ toast('この方の情報は表示できません'); return; }
+  // 一次パートナーは自社の候補者のみ（他社の個人情報を開かせない）
+  if(S.role==='agency' && r.ag!==S.agencyId){ toast('この方の情報は表示できません'); return; }
   curRef=id;
   const a=agency(r.ag), p=project(r.pj);
   const d=document.getElementById('drawer');
@@ -4624,7 +4733,16 @@ function openRefDrawer(id){
           <div class="field"><label>入社日<span style="font-weight:400;color:var(--muted);font-size:11px"> （空にすると未定）</span></label><input type="date" id="dr_joined" value="${r.joined?esc(r.joined.slice(0,10)):''}"></div>
           <div class="field"><label>選考会日${S.role==='kanoa'?`<button class="btn btn-ghost btn-sm" style="padding:1px 8px;font-size:10.5px;margin-left:8px;vertical-align:1px" data-act="share-session" data-id="${r.id}">パートナーに連絡</button>`:''}</label><input id="dr_session" value="${r.session==='—'?'':esc(r.session)}" placeholder="7/18 14:00 など"></div>
           <div class="field"><label>希望エリア</label><select id="dr_area">${areaOptions(r.area||'')}</select></div>
+          <div class="field"><label>支払ステータス</label><select id="dr_pay">
+            <option value="" ${!r.payStatus?'selected':''}>自動判定（${PAY_STATUS[payStatusOf(r)]?PAY_STATUS[payStatusOf(r)].label:'—'}）</option>
+            ${PAY_ORDER.map(k=>`<option value="${k}" ${k===r.payStatus?'selected':''}>${PAY_STATUS[k].label}</option>`).join('')}
+          </select></div>
         </div>
+        ${r.status==='resigned' && !r.resigned ? `<div class="panel" style="padding:10px 13px;margin:2px 0 12px;background:#FDF2E2;border:1px solid #F5DEB8">
+          <div style="font-size:12px;color:#B45309;font-weight:600">早期退職ですが、退職日がまだ記録されていません</div>
+          <div style="font-size:11.5px;color:#92400E;margin:2px 0 8px">返金額は退職日から計算されます。退職日を記録してください。</div>
+          <button class="btn btn-ghost btn-sm" data-act="ref-resign-prompt" data-ref="${r.id}">退職を記録</button>
+        </div>`:''}
         <div class="dt-block-title">個人情報</div>
         <div class="dr-form">
           <div class="field full"><label>氏名</label><input id="dr_name" value="${esc(r.name||'')}"></div>
@@ -4639,12 +4757,16 @@ function openRefDrawer(id){
           <div class="field"><label>案件</label><select id="dr_pj">${opts(DB.projects,r.pj,'name')}</select></div>
           <div class="field"><label>パートナー</label><select id="dr_ag">${opts(DB.agencies,r.ag,'name')}</select></div>
         </div>
-        <div class="dt-block-title">社内メモ（パートナーには非表示）</div>
-        <div class="field" style="margin-bottom:14px"><textarea id="dr_note" rows="2" placeholder="社内向けの申し送り・補足">${esc(r.note||'')}</textarea></div>
+        <div class="dt-block-title">管理者メモ（KANOAのみ）</div>
+        <div class="cell-sub" style="margin:-2px 0 6px">この欄はKANOA管理者だけが見られます。パートナー・二次パートナー・進捗確認ページには一切表示されません。</div>
+        <div class="field" style="margin-bottom:14px"><textarea id="dr_adminnote" rows="3" placeholder="管理者だけの申し送り・注意点・社内判断のメモ">${esc(r.adminNote||'')}</textarea></div>
+        <div class="dt-block-title">共有メモ（備考）</div>
+        <div class="cell-sub" style="margin:-2px 0 6px">紹介元パートナーの進捗確認ページでは「備考」として表示・編集されます。相手に見せてよい内容だけを書いてください。</div>
+        <div class="field" style="margin-bottom:14px"><textarea id="dr_note" rows="2" placeholder="相手と共有してよい補足">${esc(r.note||'')}</textarea></div>
         ${docsSection(r)}
         ${(()=>{const s=docStat(r); return (!s.rireki||!s.shoku)?`<button class="btn btn-ghost btn-block btn-sm" style="margin-bottom:10px" data-act="request-docs" data-ag="${r.ag}" data-ref="${r.id}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>${esc(a?a.name:r.ag)}に資料を依頼</button>`:'';})()}
         <button class="btn btn-ghost btn-block btn-sm" style="margin-bottom:10px;margin-top:4px" data-act="contact-agency" data-ag="${r.ag}" data-ref="${r.id}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>${esc(a?a.name:r.ag)}に「${esc(r.name)}」の件で連絡</button>
-        ${(r.status==='joined' && isRakutenProject(r.pj)) ? `
+        ${(hasJoined(r) && isRakutenProject(r.pj)) ? `
         <div class="dt-block-title" style="margin-top:16px">退職・返金</div>
         <div class="info-card">
           ${r.resigned ? `
@@ -4713,7 +4835,7 @@ function openRefDrawer(id){
       <div class="dt-block-title">送客・選考情報</div>
       <div class="info-card">
         ${row('案件',esc(p?p.name:r.pj))}
-        ${row('ステータス',STATUS[r.status].label)}
+        ${row('ステータス',esc(statusDef(r.status).label))}
         ${row('選考会日',esc(r.session==='—'?'未定':r.session))}
         ${row('送客日',esc(r.created||'—'))}
         ${S.role==='kanoa'
@@ -4726,7 +4848,7 @@ function openRefDrawer(id){
         ${row('入社日',r.joined?joinedYMD(r):'未定')}
         ${row('成果報酬',refEarning(r)?yen(refEarning(r)):'—')}
       </div>
-      ${(r.status==='joined' && isRakutenProject(r.pj)) ? `
+      ${(hasJoined(r) && isRakutenProject(r.pj)) ? `
       <div class="dt-block-title" style="margin-top:16px">退職・返金</div>
       <div class="info-card">
         ${r.resigned ? `
@@ -4756,6 +4878,9 @@ function openRefDrawer(id){
 }
 function saveRefEdit(id){
   const r=DB.referrals.find(x=>x.id===id); if(!r) return;
+  // 保存できる権限があるか（KANOA=全項目 / 一次パートナー=自社の候補者の個人情報のみ）
+  if(S.role==='agency' && r.ag!==S.agencyId){ toast('この方は編集できません'); return; }
+  if(S.role!=='kanoa' && S.role!=='agency'){ toast('この方は編集できません'); return; }
   const _em=val('dr_email'); if(_em && !isEmail(_em)){ toast('メールアドレスの形式をご確認ください'); const _el=document.getElementById('dr_email'); if(_el) _el.focus(); return; }
   r.name=val('dr_name'); r.kana=val('dr_kana'); r.phone=val('dr_phone'); r.email=_em;
   r.address=val('dr_address'); r.area=val('dr_area');
@@ -4770,10 +4895,12 @@ function saveRefEdit(id){
     const sessEl=document.getElementById('dr_session'); if(sessEl) r.session=sessEl.value.trim()||'—';
     // 入社日：入力欄で選んだ日付（YYYY-MM-DD）を常に優先。空にすれば「未定」へ戻せる。
     const jdEl=document.getElementById('dr_joined');
-    if(jdEl){ r.joined=jdEl.value||''; if(newStatus==='joined' && !r.joined) r.joined=todayISO(); }
+    if(jdEl){ r.joined=jdEl.value||''; if(hasJoined(r) && !r.joined) r.joined=todayISO(); }
     const pjEl=document.getElementById('dr_pj'); if(pjEl) r.pj=pjEl.value;
     const agEl=document.getElementById('dr_ag'); if(agEl) r.ag=agEl.value;
     const note=document.getElementById('dr_note'); if(note) r.note=note.value.trim();
+    const anote=document.getElementById('dr_adminnote'); if(anote) r.adminNote=anote.value.trim();
+    const payEl=document.getElementById('dr_pay'); if(payEl) r.payStatus=payEl.value||'';
   }
   save(); updateNavCounts();
   if(S.view==='referrals'){ renderRefChips(); renderRefTable(); }
@@ -4789,7 +4916,7 @@ function openAgencyDrawer(id){
   S._agDrawer=id;
   const rs=agencyReferrals(id);
   const sent=rs.filter(r=>r.status!=='rejected').length;
-  const joined=rs.filter(r=>r.status==='joined').length;
+  const joined=rs.filter(hasJoined).length;
   const sp=splitEarn(rs);
   const recent=rs.slice().sort((x,y)=>(x.created<y.created?1:-1)).slice(0,6);
   const un=unreadKanoaBy(id);
@@ -5236,15 +5363,16 @@ function downloadCSV(filename, header, rows){
 }
 function exportRefsRows(list){
   const rows=list.map(r=>{ const p=project(r.pj),a=agency(r.ag); const s=docStat(r);
-    return [a?a.name:r.ag, p?p.name:r.pj, r.name, r.kana, STATUS[r.status].label, r.area, r.session==='—'?'':r.session, r.created, joinedYM(r), r.joined, s.rireki?'有':'無', s.shoku?'有':'無', s.n, r.phone, r.email, r.address, refEarning(r)]; });
-  downloadCSV(`送客一覧_${todayISO()}.csv`, ['パートナー','案件','氏名','フリガナ','ステータス','希望エリア','選考会日','送客日','入社月','入社日','履歴書','職務経歴書','資料数','電話','メール','住所','成果報酬'], rows);
+    const pk=payStatusOf(r);
+    return [a?a.name:r.ag, p?p.name:r.pj, r.name, r.kana, statusDef(r.status).label, (PAY_STATUS[pk]?PAY_STATUS[pk].label:''), r.area, r.session==='—'?'':r.session, r.created, joinedYM(r), r.joined, r.resigned?(r.resignedOn||'有'):'', s.rireki?'有':'無', s.shoku?'有':'無', s.n, r.phone, r.email, r.address, refEarning(r)]; });
+  downloadCSV(`送客一覧_${todayISO()}.csv`, ['パートナー','案件','氏名','フリガナ','ステータス','支払ステータス','希望エリア','選考会日','送客日','入社月','入社日','退職日','履歴書','職務経歴書','資料数','電話','メール','住所','成果報酬'], rows);
 }
 function exportRefs(){ exportRefsRows(refFiltered()); }
 function exportEarn(){
   const rows=[];
   DB.agencies.filter(a=>a.status==='active').forEach(a=>DB.projects.forEach(p=>{
     const rs=DB.referrals.filter(r=>r.ag===a.id&&r.pj===p.id); if(!rs.length) return;
-    const sent=rs.filter(r=>r.status!=='rejected').length, joined=rs.filter(r=>r.status==='joined').length;
+    const sent=rs.filter(r=>r.status!=='rejected').length, joined=rs.filter(hasJoined).length;
     const e=effReward(p.id,a.id);
     const refRew=(p.rewardType!=='success')?sent*e.ref:0, sucRew=(p.rewardType!=='referral')?joined*e.suc:0;
     rows.push([a.name,p.name,sent,joined,refRew,sucRew,refRew+sucRew]);
@@ -5252,7 +5380,7 @@ function exportEarn(){
   downloadCSV(`成果報酬_${todayISO()}.csv`, ['パートナー','案件','送客','入社','送客報酬','成功報酬','合計'], rows);
 }
 function exportAgencies(){
-  const rows=DB.agencies.map(a=>{ const rs=agencyReferrals(a.id); const sent=rs.filter(r=>r.status!=='rejected').length; const joined=rs.filter(r=>r.status==='joined').length; const earn=rs.reduce((s,r)=>s+refEarning(r),0);
+  const rows=DB.agencies.map(a=>{ const rs=agencyReferrals(a.id); const sent=rs.filter(r=>r.status!=='rejected').length; const joined=rs.filter(hasJoined).length; const earn=rs.reduce((s,r)=>s+refEarning(r),0);
     return [a.id,a.name,a.contact,a.email,a.status==='active'?'提携中':a.status==='pending'?'承認待ち':'停止中',a.source==='invited'?'招待発行':'申請承認',a.joined,sent,joined,earn]; });
   downloadCSV(`パートナー一覧_${todayISO()}.csv`, ['ID','パートナー名','担当','メール','状態','経路','登録日','送客','入社','成果報酬'], rows);
 }
@@ -5366,13 +5494,13 @@ document.addEventListener('click', e=>{
         if(block){ toast(block); break; }
         r.status=st; r.failAt=null;
         if(st==='joined' && !r.joined) r.joined=todayISO();
-        DB.activity.unshift({ts:nowTS(),actor:'KANOA',action:'ステータス変更',detail:`${r.name} を「${STATUS[st].label}」に`});
+        DB.activity.unshift({ts:nowTS(),actor:'KANOA',action:'ステータス変更',detail:`${r.name} を「${statusDef(st).label}」に`});
         if(st==='offer'){ const need=missingDocsForStage(r,'offer'); const opt=missingOptionalForStage(r,'offer');
           if(need.length){ const txt=`【内定おめでとうございます】オファー提示のため、至急 ${need.join('・')} のご提出をお願いします。${opt.length?`（賞与の支払いがある場合は ${opt.join('・')} も）`:''}`;
             DB.messages.push({id:uid('M'),ag:r.ag,from:'kanoa',text:txt,ts:nowTS(),read:false,refId:r.id}); }
         }
         save(); updateNavCounts();
-        toast(`${r.name} を「${STATUS[st].label}」に変更しました`);
+        toast(`${r.name} を「${statusDef(st).label}」に変更しました`);
         renderConversation(curThreadAg(), meRole());
       }
       break;
@@ -5380,7 +5508,7 @@ document.addEventListener('click', e=>{
     case 'set-ref-milestone': {
       // 管理者がマイルストーンをクリック：○（通過）→ ✕（未通過）→ 空白（未到達）を循環
       const r=DB.referrals.find(x=>x.id===t.dataset.ref); const s=t.dataset.s;
-      const stages=['entry','screening','interview','offer','joined'];
+      const stages=PIPELINE_STAGES;
       const i=stages.indexOf(s);
       if(!r || i<0) break;
       const cur=stageMark(r, i);                                   // 現在のこの段階の状態
@@ -5566,7 +5694,7 @@ document.addEventListener('click', e=>{
     case 'rsel': { const id=t.dataset.id; if(rSel.has(id)) rSel.delete(id); else rSel.add(id); renderRefTable(); break; }
     case 'rsel-all': { const rows=refFiltered(); const allSel=rows.every(r=>rSel.has(r.id)); if(allSel) rows.forEach(r=>rSel.delete(r.id)); else rows.forEach(r=>rSel.add(r.id)); renderRefTable(); break; }
     case 'rsel-clear': rSel.clear(); renderRefTable(); break;
-    case 'bulk-status-apply': { const sel=document.getElementById('bulkStatus'); const st=sel?sel.value:''; if(!st||!rSel.size) break; let n=0; DB.referrals.forEach(r=>{ if(rSel.has(r.id) && r.status!==st){ r.status=st; n++; } }); save(); rSel.clear(); renderRefChips(); renderRefTable(); updateNavCounts(); toast(`${n}件のステータスを「${STATUS[st].label}」に変更しました`); break; }
+    case 'bulk-status-apply': { const sel=document.getElementById('bulkStatus'); const st=sel?sel.value:''; if(!st||!rSel.size) break; let n=0; DB.referrals.forEach(r=>{ if(rSel.has(r.id) && r.status!==st){ r.status=st; n++; } }); save(); rSel.clear(); renderRefChips(); renderRefTable(); updateNavCounts(); toast(`${n}件のステータスを「${statusDef(st).label}」に変更しました`); break; }
     case 'bulk-export': { const rows=DB.referrals.filter(r=>rSel.has(r.id)); exportRefsRows(rows); break; }
     case 'export-refs': exportRefs(); break;
     case 'export-earn': exportEarn(); break;
@@ -5597,7 +5725,7 @@ document.addEventListener('click', e=>{
     case 'request-docs': { const r=DB.referrals.find(x=>x.id===t.dataset.ref);
       let prefill='';
       if(r){
-        const stage = (r.status==='offer'||r.status==='joined') ? 'offer' : 'interview';
+        const stage = (r.status==='offer'||hasJoined(r)) ? 'offer' : 'interview';
         const need = missingDocsForStage(r, stage);
         const opt  = missingOptionalForStage(r, stage);
         if(stage==='offer'){
@@ -5708,10 +5836,10 @@ document.addEventListener('change', e=>{
     else { r[f]=v; }
     if(f==='status' && _prev!==v && typeof logRef==='function'){
       const back = STATUS_ORDER.indexOf(v) < STATUS_ORDER.indexOf(_prev);
-      logRef(r.id, `ステータス変更：${STATUS[_prev]?STATUS[_prev].label:_prev} → ${STATUS[v].label}${back?'（差し戻し）':''}`, '');
+      logRef(r.id, `ステータス変更：${statusDef(_prev).label} → ${statusDef(v).label}${back?'（差し戻し）':''}`, '');
     }
-    if(f==='status'){ t.className='icell stsel st-'+STATUS[v].cls;
-      if(v==='joined'&&!r.joined) r.joined=todayISO();
+    if(f==='status'){ t.className='icell stsel st-'+statusDef(v).cls;
+      if(hasJoined(r)&&!r.joined) r.joined=todayISO();
       renderRefChips(); }
     save(); flash(t);
     if(f==='status'||f==='joinedMonth') renderRefTable();
@@ -5782,6 +5910,7 @@ document.addEventListener('change', e=>{
   if(['fSessFrom','fSessTo','fJoinFrom','fJoinTo','fCrFrom','fCrTo'].includes(e.target.id)){ const map={fSessFrom:'sessFrom',fSessTo:'sessTo',fJoinFrom:'joinFrom',fJoinTo:'joinTo',fCrFrom:'crFrom',fCrTo:'crTo'}; rFilter[map[e.target.id]]=e.target.value; renderRefTable(); }
   if(e.target.id==='fJoinMode'){ rFilter.joinMode=e.target.value; renderRefTable(); }
   if(e.target.id==='fDoc'){ rFilter.docMode=e.target.value; renderRefChips(); renderRefTable(); }
+  if(e.target.id==='fPay'){ rFilter.pay=e.target.value; renderRefTable(); }
   if(e.target.id==='fSessTbd'){ rFilter.sessTbd=e.target.checked; renderRefTable(); }
   if(e.target.dataset && e.target.dataset.act==='doc-input'){ if(e.target.files&&e.target.files.length) uploadDocs(e.target.dataset.ref, e.target.files, e.target.dataset.kind||''); }
   // 進捗確認ページからの書類アップロード
@@ -5965,7 +6094,7 @@ function refInvoiced(refId){
 /* ── 請求対象になり得る入社確定者（未請求のみ） ── */
 function billableRefs(agId){
   return DB.referrals
-    .filter(r=> r.ag===agId && r.status==='joined' && refEarning(r)>0 && !refInvoiced(r.id));
+    .filter(r=> r.ag===agId && hasJoined(r) && refEarning(r)>0 && !refInvoiced(r.id));
 }
 
 /* ── 状態履歴を1件追加 ── */
@@ -6149,12 +6278,16 @@ function viewInvoices(){
 }
 
 function invQuickActions(v){
-  const role=meRole(); const stop='onclick="event.stopPropagation()"';
+  // ★ここで onclick="event.stopPropagation()" を付けてはいけない。
+  //   クリック処理は document 上の委譲リスナーが担っているため、伝播を止めると
+  //   ボタン自体が何も動かなくなる（行の inv-open は closest() が内側の
+  //   data-act を優先して拾うので、止めなくても誤爆しない）。
+  const role=meRole();
   if(role==='agency'){
-    if(v.status==='draft')    return `<button class="btn btn-primary btn-sm" ${stop} data-act="inv-act" data-id="${v.id}" data-do="submit">提出</button>`;
-    if(v.status==='rejected') return `<button class="btn btn-primary btn-sm" ${stop} data-act="inv-act" data-id="${v.id}" data-do="submit">再提出</button>`;
+    if(v.status==='draft')    return `<button class="btn btn-primary btn-sm" data-act="inv-act" data-id="${v.id}" data-do="submit">提出</button>`;
+    if(v.status==='rejected') return `<button class="btn btn-primary btn-sm" data-act="inv-act" data-id="${v.id}" data-do="submit">再提出</button>`;
   } else {
-    if(v.status==='accepted')  return `<button class="btn btn-primary btn-sm" ${stop} data-act="inv-act" data-id="${v.id}" data-do="pay">支払済に</button>`;
+    if(v.status==='accepted')  return `<button class="btn btn-primary btn-sm" data-act="inv-act" data-id="${v.id}" data-do="pay">支払済に</button>`;
   }
   return '';
 }
@@ -6371,6 +6504,10 @@ function markResigned(refId, resignedOn, fraud){
   r.resignedOn=resignedOn||todayISO();
   r.resignFraud=!!fraud;
   r.resigned=true;
+  // 在籍6ヶ月未満（＝返金規定の対象）の退職は、選考ステータスも「早期退職」に揃える。
+  // 二度手間（退職の記録とステータス変更の二重入力）を防ぐため。
+  const _m=tenureMonths(r.joined, r.resignedOn);
+  if(r.status==='joined' && (fraud || (_m!==null && _m<6))) r.status='resigned';
   logRef(r.id,'退職を記録',`退職日 ${r.resignedOn}${fraud?'・経歴詐称':''}`);
   save();
   if(['referrals','myrefs','refunds','posthire'].includes(S.view)) render();
@@ -6383,6 +6520,7 @@ function unmarkResigned(refId){
   const r=DB.referrals.find(x=>x.id===refId); if(!r) return;
   if(refundInvoiced(refId)){ toast('返金請求が発行済みのため取消できません。先に返金請求を削除してください'); return; }
   r.resigned=false; r.resignedOn=null; r.resignFraud=false; r.resignConfirmed=false;
+  if(r.status==='resigned') r.status='joined';   // ステータスも入社に戻す
   logRef(r.id,'退職記録を取消','');
   save();
   if(['referrals','myrefs','refunds','posthire'].includes(S.view)) render();
@@ -6393,7 +6531,7 @@ function unmarkResigned(refId){
 /* 退職した入社者で、返金が発生し未請求の人 */
 function refundableRefs(agId){
   return DB.referrals.filter(r=>
-    r.ag===agId && r.status==='joined' && r.resigned
+    r.ag===agId && hasJoined(r) && r.resigned
     && refundAmount(r)>0 && !refundInvoiced(r.id));
 }
 
@@ -6451,7 +6589,7 @@ function resignBadge(st){ const x=RESIGN_STATUS[st]||RESIGN_STATUS.reported;
 
 /* 退職者の現在ステータスを算出（保存値＋請求状態から動的に） */
 function resignStatus(r){
-  if(!r.resigned) return null;
+  if(!isResignedRef(r)) return null;
   // 返金不要なら確認済みで完了
   if(refundAmount(r)<=0) return r.resignConfirmed ? 'confirmed' : 'reported';
   // 返金ありの場合、請求の進み具合で判定
@@ -6466,7 +6604,7 @@ function resignStatus(r){
 
 /* ── 返金フローの「今どちらのボールか」──────────────────── */
 function refundBall(r){
-  if(!r.resigned || !isRakutenProject(r.pj)) return null;
+  if(!isResignedRef(r) || !isRakutenProject(r.pj)) return null;
   const rs=resignStatus(r);
   if(rs==='settled') return {side:null, act:'返金が完了しました', prep:''};
   if(rs==='reported') return {side:'kanoa', act:'退職を確認する', prep:'パートナー側の準備：退職日の根拠（本人連絡・書面など）を共有'};
@@ -6520,7 +6658,7 @@ function addMonths(dateISO, m){
 }
 /* 在籍中の楽天入社者について、次の節目とその残日数を返す */
 function refundMilestone(r){
-  if(!isRakutenProject(r.pj) || !r.joined || r.resigned) return null;
+  if(!isRakutenProject(r.pj) || !r.joined || isResignedRef(r)) return null;
   const m=tenureMonths(r.joined, todayISO());
   let nextMonth, nextLabel, nextRate;
   if(m<1){ nextMonth=1; nextLabel='返金80%→50%'; nextRate='50%'; }
@@ -6535,7 +6673,7 @@ function refundMilestone(r){
 /* 期限が近い在籍者（30日以内に節目）を返す */
 function refundAlerts(agId){
   return DB.referrals
-    .filter(r=> r.status==='joined' && !r.resigned && isRakutenProject(r.pj) && (!agId || r.ag===agId))
+    .filter(r=> hasJoined(r) && !isResignedRef(r) && isRakutenProject(r.pj) && (!agId || r.ag===agId))
     .map(r=>({ r, ms:refundMilestone(r) }))
     .filter(x=> x.ms && !x.ms.done && x.ms.days!=null && x.ms.days<=30 && x.ms.days>=0)
     .sort((a,b)=> a.ms.days - b.ms.days);
@@ -6546,7 +6684,7 @@ function resignTodos(){
   const isK=S.role==='kanoa'; const agId=isK?null:S.agencyId;
   const todos=[];
   // 退職報告あり・未確認
-  DB.referrals.filter(r=> r.resigned && resignStatus(r)==='reported' && isRakutenProject(r.pj) && (isK||r.ag===agId))
+  DB.referrals.filter(r=> isResignedRef(r) && resignStatus(r)==='reported' && isRakutenProject(r.pj) && (isK||r.ag===agId))
     .forEach(r=> todos.push({ kind:'confirm', r, label:`${r.name} の退職を確認`, sub:'退職報告あり → 確認待ち' }));
   if(!isK){
     // パートナー: 返金請求できる
@@ -6568,8 +6706,8 @@ function viewRefunds(){
   setHeader('退職・返金', '入社後の退職と返金を、抜け漏れなく管理');
   const c=document.getElementById('content');
 
-  const resigned = DB.referrals.filter(r=> r.status==='joined' && r.resigned && isRakutenProject(r.pj) && (isK||r.ag===agId));
-  const active   = DB.referrals.filter(r=> r.status==='joined' && !r.resigned && isRakutenProject(r.pj) && (isK||r.ag===agId));
+  const resigned = DB.referrals.filter(r=> hasJoined(r) && isResignedRef(r) && isRakutenProject(r.pj) && (isK||r.ag===agId));
+  const active   = DB.referrals.filter(r=> hasJoined(r) && !isResignedRef(r) && isRakutenProject(r.pj) && (isK||r.ag===agId));
   const todos    = resignTodos();
   const alerts   = refundAlerts(agId);
   const totalRefund = resigned.reduce((s,r)=>s+refundAmount(r),0);
@@ -6781,10 +6919,10 @@ function stepBar(r){
   // 退職している楽天案件は、入社の先に返金ステップを追加
   let steps=base.slice();
   let curIdx = base.findIndex(s=>s.k===r.status);
-  if(r.status==='joined') curIdx=4;
+  if(hasJoined(r)) curIdx=4;
   if(orderIdx>=0 && orderIdx<joinedIdx) curIdx=orderIdx;
 
-  if(r.status==='joined' && r.resigned && isRakutenProject(r.pj)){
+  if(hasJoined(r) && isResignedRef(r) && isRakutenProject(r.pj)){
     const rs=resignStatus(r);
     const rmap={reported:0,confirmed:1,billing:2,settled:3};
     steps=steps.concat([
@@ -6835,9 +6973,9 @@ function viewPostHire(){
   setHeader('入社後トラッキング', '入社した方の「その後」を一元管理');
   const c=document.getElementById('content');
 
-  const joined = DB.referrals.filter(r=> r.status==='joined' && (isK||r.ag===agId));
-  const active = joined.filter(r=>!r.resigned);
-  const resigned = joined.filter(r=>r.resigned);
+  const joined = DB.referrals.filter(r=> hasJoined(r) && (isK||r.ag===agId));
+  const active = joined.filter(r=>!isResignedRef(r));
+  const resigned = joined.filter(isResignedRef);
   const rakutenActive = active.filter(r=>isRakutenProject(r.pj));
 
   // 返金期限アラート
@@ -7348,9 +7486,9 @@ function viewFinance(){
   ensureInvoices();
   setHeader('収支', '全体の売上・パートナー支払・自社取り分を一元管理');
   const c=document.getElementById('content');
-  const joined=DB.referrals.filter(r=>r.status==='joined');
+  const joined=DB.referrals.filter(hasJoined);
   const payoutOf=r=>refEarning(r)||0;
-  const refundOf=r=> (r.resigned&&isRakutenProject(r.pj))?refundAmount(r):0;
+  const refundOf=r=> (isResignedRef(r)&&isRakutenProject(r.pj))?refundAmount(r):0;
   const totalPay=joined.reduce((s,r)=>s+payoutOf(r),0);
   const totalRef=joined.reduce((s,r)=>s+refundOf(r),0);
   const net=totalPay-totalRef;
@@ -7838,7 +7976,7 @@ function nextAction(r){
   if(st==='declined') return {level:'done', text:'辞退', who:'both'};
 
   // 退職・返金フェーズ（入社後）は返金ボールを最優先
-  if(st==='joined' && r.resigned && isRakutenProject(r.pj) && typeof refundBall==='function'){
+  if(hasJoined(r) && isResignedRef(r) && isRakutenProject(r.pj) && typeof refundBall==='function'){
     const b=refundBall(r);
     if(b && b.side){
       return {level:'warn', text:b.act, who:b.side};
@@ -7847,7 +7985,8 @@ function nextAction(r){
   }
 
   // 選考中：SPI・コンプラの未対応は「最速で」対応すべき最重要事項
-  if(typeof needsChecks==='function' && needsChecks(r)){
+  // ※入社済み・早期退職の人は選考が終わっているので対象外（至急バナーの誤検知を防ぐ）
+  if(typeof needsChecks==='function' && needsChecks(r) && !hasJoined(r)){
     const spi=r.spi||'none', comp=r.compliance||'none';
     const pend=[];
     if(spi!=='done') pend.push('SPI');
@@ -7867,7 +8006,7 @@ function nextAction(r){
   // 書類不足で次段階に進めない
   if(typeof missingDocsForStage==='function'){
     const order=['screening','interview','offer','joined'];
-    const ci=order.indexOf(st);
+    const ci=hasJoined(r)?-1:order.indexOf(st);
     const nextStage = ci>=0 ? order[ci+1] : (st==='entry'?'screening':null);
     if(nextStage){
       const miss=missingDocsForStage(r, nextStage==='screening'?'interview':nextStage);
@@ -7884,6 +8023,7 @@ function nextAction(r){
     interview:  {level:'info', text:'選考会の結果待ち', who:'kanoa'},
     offer:      {level:'info', text:'入社手続き', who:'both'},
     joined:     {level:'done', text:'入社済み', who:'both'},
+    resigned:   {level:'warn', text:'早期退職 — 退職日と返金の確認', who:'both'},
   };
   return map[st] || null;
 }
@@ -7921,7 +8061,12 @@ function urgentBannerHtml(){
   </div>`;
 }
 function urgentReferrals(){
-  return DB.referrals.filter(r=>{ const a=nextAction(r); return a && a.level==='urgent'; });
+  // 自分が見てよい範囲だけを対象にする（パートナーに他社の候補者名を見せない）
+  const scope = (S.role==='kanoa') ? DB.referrals
+              : (S.role==='agency') ? DB.referrals.filter(r=>r.ag===S.agencyId)
+              : (S.role==='sub')    ? (typeof subReferrals==='function'?subReferrals():[])
+              : [];
+  return scope.filter(r=>{ const a=nextAction(r); return a && a.level==='urgent'; });
 }
 
 
@@ -8507,7 +8652,14 @@ function resetSessionCaches(){
   _formShareProjs=null;
   _tkEditDraft=null;
   _tkToken=''; _tkPw=''; _tkRows=[]; _tkTab='all'; _tkCompany='';
-  try{ DB = {agencies:[],projects:[],assignments:[],referrals:[],messages:[],tasks:[],members:[],activity:[],invoices:[],reflog:[],intake:[],subaccounts:[],logins:[]}; }catch(e){}
+  // 本番はログイン後に loadAll() で取り直すので空にしてよい。
+  // デモは端末内のデータが唯一の正なので、空にすると
+  // ログアウト後に一覧が全部消え、その状態で保存すると localStorage まで空で上書きされる。
+  // → デモでは保存済みデータを読み直す。
+  try{
+    DB = DEMO_MODE ? load()
+       : {agencies:[],projects:[],assignments:[],referrals:[],messages:[],tasks:[],members:[],activity:[],invoices:[],reflog:[],intake:[],subaccounts:[],logins:[]};
+  }catch(e){}
 }
 async function loadSubPartners(force){
   if(force) _subPartnerCache=null;
@@ -8647,7 +8799,7 @@ function viewRecore(){
   setHeader('RECORE 収支管理', 'クライアント→KANOA→RECORE→各社の資金フローを一元管理');
   const c=document.getElementById('content');
 
-  const joined=DB.referrals.filter(r=>r.status==='joined');
+  const joined=DB.referrals.filter(hasJoined);
   const payoutOf=r=>refEarning(r)||0;
   const feeOf=r=>{ const p=project(r.pj); return (p&&+p.clientFee)?+p.clientFee:0; };
   const routeOf=r=>{ const a=agency(r.ag); return (a&&a.payRoute==='B')?'B':'A'; };
@@ -8777,7 +8929,7 @@ function subPartnersOf(ag){
   });
   // 配列化＋集計
   return Array.from(map.values()).map(sp=>{
-    const joined = sp.refs.filter(r=>r.status==='joined').length;
+    const joined = sp.refs.filter(hasJoined).length;
     const active = sp.refs.filter(r=>r.status!=='rejected'&&r.status!=='declined').length;
     // 書類不足の候補者数（選考中で、必要書類が揃っていない人）
     const needDocs = sp.refs.filter(r=>{
@@ -8801,7 +8953,7 @@ function allSubPartners(){
 
 let _openSubPartner = null;  // 展開中の二次パートナー名
 
-const statusMini = r => `<span class="badge bd-${STATUS[r.status].cls}" style="font-size:10px">${STATUS[r.status].label}</span>`;
+const statusMini = r => `<span class="badge bd-${statusDef(r.status).cls}" style="font-size:10px">${esc(statusDef(r.status).label)}</span>`;
 function subPartnerCard(sp, isK){
 
     const key = (isK?sp.parent.id+'::':'')+sp.name;
@@ -9218,7 +9370,7 @@ function viewSubHome(){
   const c=document.getElementById('content');
   const rows = subReferrals();
   const active = rows.filter(r=>r.status!=='rejected'&&r.status!=='declined');
-  const joined = rows.filter(r=>r.status==='joined').length;
+  const joined = rows.filter(hasJoined).length;
   // 書類不足のカウント
   const needDocs = active.filter(r=>{
     if(typeof missingDocsForStage!=='function') return false;
@@ -9226,7 +9378,7 @@ function viewSubHome(){
     return m.length>0;
   });
 
-  const statusMiniLocal = r => `<span class="badge bd-${STATUS[r.status].cls}">${STATUS[r.status].label}</span>`;
+  const statusMiniLocal = r => `<span class="badge bd-${statusDef(r.status).cls}">${esc(statusDef(r.status).label)}</span>`;
 
   const rowsHtml = rows.length ? rows.map(r=>{
     const miss = (typeof missingDocsForStage==='function' && r.status!=='rejected' && r.status!=='declined')
@@ -9274,7 +9426,7 @@ function viewKanoaRecore(){
   setHeader('RECORE 残高・資金管理', 'RECOREに入れた金額と、各社への支払・KANOAへの戻りを把握');
   const c=document.getElementById('content');
 
-  const joined=DB.referrals.filter(r=>r.status==='joined');
+  const joined=DB.referrals.filter(hasJoined);
   const payoutOf=r=>refEarning(r)||0;
   const feeOf=r=>{ const p=project(r.pj); return (p&&+p.clientFee)?+p.clientFee:0; };
   const routeOf=r=>{ const a=agency(r.ag); return (a&&a.payRoute==='B')?'B':'A'; };
@@ -9476,7 +9628,7 @@ function crossDupBadge(r){
 
 
 /* ════════════════════ 二次パートナー向け 進捗確認ページ（?track=xxx） ════════════════════
-   ログイン不要。リンク＋パスワードのみ。閲覧専用（書類提出・編集はできない）。
+   ログイン不要。リンク＋パスワードのみ。自分が紹介した方の進捗確認・情報の編集・書類の提出ができる。
    パスワードの照合と絞り込みはサーバー(RPC)側で行うため、パスワードなしでは情報が一切返らない。 */
 function renderTrackerGate(token){
   hideBootSplash();
@@ -9499,7 +9651,7 @@ function renderTrackerGate(token){
         <button id="tkBtn" class="btn btn-primary" style="width:100%;margin-top:6px" data-act="tracker-open" data-token="${esc(token)}">進捗を表示する</button>
       </div>
       <div style="text-align:center;font-size:11px;color:var(--soft);margin-top:14px">
-        このページは閲覧専用です。表示内容の取り扱いにはご注意ください。
+        ご紹介いただいた方の情報が表示されます。取り扱いにはご注意ください。
       </div>
     </div>
   </div>`;
@@ -9547,7 +9699,7 @@ async function refreshTracker(silent){
 }
 
 /* 状況ラベル。フォーム登録済み（未送客）は「確認中」として見せる */
-const TK_LBL={entry:'送客済',screening:'書類選考',interview:'選考会',offer:'内定',joined:'入社',rejected:'見送り',declined:'辞退'};
+const TK_LBL={entry:'送客済',screening:'書類選考',interview:'選考会',offer:'内定',joined:'入社',resigned:'早期退職',rejected:'見送り',declined:'辞退'};
 function tkStatusLabel(r){
   if(r.kind==='intake') return (r.status==='rejected') ? '見送り' : '確認中';
   return TK_LBL[r.status] || r.status;
@@ -9586,8 +9738,8 @@ function renderTrackerList(rows, company){
   const pick=k=>
     k==='all'    ? all :
     k==='intake' ? all.filter(r=>r.kind==='intake' && r.status!=='rejected') :
-    k==='active' ? all.filter(r=>r.kind==='referral' && r.status!=='rejected' && r.status!=='declined' && r.status!=='joined') :
-    k==='joined' ? all.filter(r=>r.status==='joined') :
+    k==='active' ? all.filter(r=>r.kind==='referral' && r.status!=='rejected' && r.status!=='declined' && r.status!=='joined' && r.status!=='resigned') :
+    k==='joined' ? all.filter(r=>r.status==='joined'||r.status==='resigned') :
     k==='out'    ? all.filter(tkIsOut) :
     all.filter(r=>r.kind==='referral' && r.status===k);
   const cnt=k=>pick(k).length;
