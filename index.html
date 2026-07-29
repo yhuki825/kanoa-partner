@@ -988,6 +988,8 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
   const toInvoice=v=>({id:v.id,no:v.no,agency_id:v.agId,status:v.status,items:v.items||[],subtotal:v.subtotal||0,tax:v.tax||0,total:v.total||0,issued_on:v.issuedOn||null,submitted_on:v.submittedOn||null,decided_on:v.decidedOn||null,paid_on:v.paidOn||null,reject_reason:v.rejectReason||null,history:v.history||[]});
   const fromMsg=r=>({id:r.id,ag:r.agency_id,from:r.sender,text:r.body,ts:slice16(r.created_at),tsr:r.created_at||'',read:r.read,refId:r.ref_id,replyTo:r.reply_to,reactions:r.reactions||[],mentions:r.mentions||[],stamp:r.stamp,pinned:r.pinned,edited:r.edited,deleted:r.deleted});
   const toMsg  =m=>({id:m.id,agency_id:m.ag,sender:m.from,body:m.text,ref_id:m.refId||null,reply_to:m.replyTo||null,reactions:m.reactions||[],mentions:m.mentions||[],stamp:m.stamp||null,pinned:!!m.pinned,edited:!!m.edited,deleted:!!m.deleted,read:!!m.read});
+  const fromNotice=r=>({id:r.id,title:r.title||'',body:r.body||'',status:r.status||'draft',audience:r.audience||'all',agIds:Array.isArray(r.agency_ids)?r.agency_ids:(r.agency_ids?JSON.parse(r.agency_ids):[]),pinned:!!r.pinned,publishedOn:r.published_on||'',created:TZ_toLocal(r.created_at)||'',updated:r.updated_on||''});
+  const toNotice  =n=>({id:n.id,title:n.title||'',body:n.body||'',status:n.status||'draft',audience:n.audience||'all',agency_ids:n.agIds||[],pinned:!!n.pinned,published_on:n.publishedOn||null,updated_on:n.updated||null});
   const fromMember=r=>({id:r.id,org:r.org,name:r.name,email:r.email,title:r.title,created:TZ_toLocalDay(r.created_at)});
   const toMember  =m=>({id:m.id,org:m.org,name:m.name,email:m.email||null,title:m.title||null});
   const fromTask=r=>({id:r.id,owner:r.owner,from:r.from_owner||r.owner,ag:r.agency_id,refId:r.ref_id,text:r.body,done:r.done,due:r.due||'',created:slice16(r.created_at)});
@@ -1018,10 +1020,11 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     let invData=[]; try{ const iv=await sb.from('invoices').select('*'); invData=iv.data||[]; }catch(e){}
     let logData=[]; try{ const lg=await sb.from('reflog').select('*').order('created_at',{ascending:false}).limit(1000); logData=lg.data||[]; }catch(e){}
     let intakeData=[]; try{ const ik=await sb.from('intake').select('*').order('created_at',{ascending:false}); intakeData=ik.data||[]; }catch(e){}
+    let noticeData=[]; try{ const nt=await sb.from('notices').select('*').order('created_at',{ascending:false}); noticeData=nt.data||[]; }catch(e){}
     const d={ agencies:(ags.data||[]).map(fromAgency), projects:(pjs.data||[]).map(fromProject),
       assignments:(asn.data||[]).map(fromAssign), referrals:(refs.data||[]).map(fromRef),
       messages:(msgs.data||[]).map(fromMsg), members:(mem.data||[]).map(fromMember),
-      tasks:(tsk.data||[]).map(fromTask), activity:[], invoices:invData.map(fromInvoice), reflog:logData.map(fromReflog), intake:intakeData.map(fromIntake),
+      tasks:(tsk.data||[]).map(fromTask), activity:[], invoices:invData.map(fromInvoice), reflog:logData.map(fromReflog), intake:intakeData.map(fromIntake), notices:noticeData.map(fromNotice),
       logins:(llogs.data||[]).map(r=>({id:r.id,ag:r.agency_id,at:TZ_toLocal(r.created_at),ok:r.success,via:r.method||'パスワード'})) };
     const byRef={}; d.referrals.forEach(r=>byRef[r.id]=r);
     (docs.data||[]).forEach(x=>{ const r=byRef[x.referral_id]; if(r) r.docs.push({id:x.id,name:x.name,size:x.size,type:x.mime,kind:x.kind,uploaded:slice16(x.created_at),path:x.storage_path}); });
@@ -1039,6 +1042,7 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
       markSynced('invoices',   (d.invoices||[]).map(toInvoice));
       markSynced('reflog',     (d.reflog||[]).map(toReflog));
       markSynced('intake',     (d.intake||[]).map(toIntake));
+      markSynced('notices',    (d.notices||[]).map(toNotice));
     }catch(e){ console.warn('[sync] markSynced', e && e.message); }
     return d;
   }
@@ -1147,6 +1151,7 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
       if(DB.invoices&&DB.invoices.length) await one('invoices', DB.invoices.map(toInvoice));
       if(DB.reflog&&DB.reflog.length) await one('reflog', DB.reflog.map(toReflog));
       if(DB.intake&&DB.intake.length) await one('intake', DB.intake.map(toIntake));
+      if(DB.notices&&DB.notices.length) await one('notices', DB.notices.map(toNotice));
     } finally { _syncing=false; }
   }
   /* 送客を1件DBへ登録し、結果を返す。DBのユニーク制約（電話番号の重複）を確実に検知するため、
@@ -1541,7 +1546,7 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
             const { data:ag } = await sb.from('agencies').select('id,status,special').eq('id',ps.agencyId).maybeSingle();
             if(ag && ag.status!=='suspended'){
               DB = await loadAll();
-              S = {role:'agency', agencyId:ag.id, view:(ag.special==='recore'?'recore':'pjlist')};
+              S = {role:'agency', agencyId:ag.id, view:(ag.special==='recore'?'recore':'home')};
               enterApp(); return;
             } else { localStorage.removeItem('kanoa_partner_session'); }
           } else if(ps && ps.role==='sub' && ps.subId){
@@ -1557,7 +1562,7 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
       const who=await whoami();
       if(who && who.role){
         DB = await loadAll();
-        S = who.role==='kanoa' ? {role:'kanoa',view:'overview'} : {role:'agency',agencyId:who.agencyId,view:'pjlist'};
+        S = who.role==='kanoa' ? {role:'kanoa',view:'overview'} : {role:'agency',agencyId:who.agencyId,view:'home'};
         enterApp();
       } else { renderLogin(); }
     }catch(e){ console.error('Supabase boot failed; showing login', e); renderLogin(); }
@@ -1566,7 +1571,7 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     const who=await whoami();
     if(!who || !who.role || (role && who.role!==role)){ return false; }
     DB = await loadAll();
-    S = who.role==='kanoa' ? {role:'kanoa',view:'overview'} : {role:'agency',agencyId:who.agencyId,view:'pjlist'};
+    S = who.role==='kanoa' ? {role:'kanoa',view:'overview'} : {role:'agency',agencyId:who.agencyId,view:'home'};
     enterApp(); return true;
   }
   async function insertLoginLog(agId, success, method){
@@ -2297,6 +2302,12 @@ function seed(){
       // パートナー（AG-02）→ KANOA への依頼
       {id:uid('T'), owner:'kanoa', from:'AG-02', text:'石川さん（ファミマ）の内定通知書の発行をお願いします', ag:'AG-02', refId:R('石川 莉央'), done:false, due:'2026-06-30', created:'2026-06-26 16:30'},
     ],
+    notices: [
+      {id:uid('N'), title:'楽天案件の新しい募集枠を追加しました', body:'楽天トータルソリューションズの募集枠が追加されました。\n首都圏・関西を中心に増枠しています。送客枠を確保したい場合はKANOA担当までご連絡ください。', status:'published', audience:'all', agIds:[], pinned:true, publishedOn:'2026-07-20', created:'2026-07-20 09:00', updated:''},
+      {id:uid('N'), title:'内定承諾資料の提出ルール変更のお知らせ', body:'内定後にご提出いただく書類について、源泉徴収票・直近3ヶ月の給与明細を必須といたします。\n賞与の支払いがある方は賞与明細も併せてご提出ください。', status:'published', audience:'all', agIds:[], pinned:false, publishedOn:'2026-07-14', created:'2026-07-14 10:30', updated:''},
+      {id:uid('N'), title:'【ALiVE様】選考会の会場変更について', body:'7月の選考会は会場が変更になりました。詳細は担当よりご連絡します。', status:'published', audience:'select', agIds:['AG-01'], pinned:false, publishedOn:'2026-07-25', created:'2026-07-25 13:00', updated:''},
+      {id:uid('N'), title:'（下書き）8月の請求締めについて', body:'8月分の請求締め日をご案内予定です。', status:'draft', audience:'all', agIds:[], pinned:false, publishedOn:'', created:'2026-07-28 18:00', updated:''},
+    ],
     members: [
       {id:uid('U'), org:'kanoa', name:'飯生 晴也', email:'haru@kanoa-inc.com', title:'代表', created:'2026-05-01'},
       {id:uid('U'), org:'kanoa', name:'村上', email:'murakami@kanoa-inc.com', title:'総務', created:'2026-05-01'},
@@ -2323,9 +2334,9 @@ function mk(pj,ag,name,kana,phone,email,address,area,status,session,created,join
   return {id:uid('R'),pj,ag,name,kana,phone,email,address,area,status,session,created,joined:joined||''};
 }
 
-let DB = DEMO_MODE ? load() : {agencies:[],projects:[],assignments:[],referrals:[],messages:[],tasks:[],members:[],activity:[],invoices:[],reflog:[],intake:[],subaccounts:[]};
+let DB = DEMO_MODE ? load() : {agencies:[],projects:[],assignments:[],referrals:[],messages:[],tasks:[],members:[],activity:[],invoices:[],reflog:[],intake:[],subaccounts:[],notices:[]};
 function load(){
-  try{ const r = localStorage.getItem(LS_KEY); if(r){ const d=JSON.parse(r); d.messages=d.messages||[]; d.activity=d.activity||[]; d.tasks=d.tasks||[]; d.subaccounts=d.subaccounts||[]; d.invoices=d.invoices||[]; d.reflog=d.reflog||[]; d.members=d.members||[]; d.logins=d.logins||[]; d.intake=d.intake||[]; return d; } }catch(e){}
+  try{ const r = localStorage.getItem(LS_KEY); if(r){ const d=JSON.parse(r); d.messages=d.messages||[]; d.activity=d.activity||[]; d.tasks=d.tasks||[]; d.subaccounts=d.subaccounts||[]; d.invoices=d.invoices||[]; d.reflog=d.reflog||[]; d.members=d.members||[]; d.logins=d.logins||[]; d.intake=d.intake||[]; d.notices=d.notices||[]; return d; } }catch(e){}
   const s = seed(); persist(s); return s;
 }
 function persist(d){ if(DEMO_MODE){ try{ localStorage.setItem(LS_KEY, JSON.stringify(d||DB)); }catch(e){} } else { SUPA.scheduleSync(); } }
@@ -2560,7 +2571,7 @@ function doLoginAgency(id, opts){
   }
   clearLoginFails(a.id);
   recordLogin(a.id, true, (opts&&opts.via)||'パスワード');
-  S = {role:'agency', agencyId:a.id, view:(a.special==='recore'?'recore':'pjlist')};
+  S = {role:'agency', agencyId:a.id, view:(a.special==='recore'?'recore':'home')};
   enterApp();
 }
 
@@ -2589,12 +2600,14 @@ const NAV_RECORE = [
     {v:'posthire', label:'入社後', icon:'<path d="M20 6L9 17l-5-5"/>'},
     {v:'refunds',  label:'退職・返金', icon:'<path d="M3 12a9 9 0 109-9 9 9 0 00-9 9z"/><path d="M3 3v6h6"/>'},
     {v:'messages', label:'連絡',       icon:'<path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/>'},
+    {v:'notices',  label:'お知らせ',   icon:'<path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/>'},
     {v:'tasks',    label:'タスク', icon:'<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>'},
     {v:'members',  label:'メンバー',   icon:'<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>'},
     {v:'accounts', label:'アカウント',  icon:'<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>'},
     {v:'loginlogs',label:'ログイン履歴', icon:'<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/>'},
   ],
   agency:[
+    {v:'home',     label:'ホーム',     icon:'<path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M9 21v-6h6v6"/>'},
     {v:'pjlist',   label:'案件一覧',   icon:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v16"/>'},
     {v:'intake',   label:'パートナー連携', icon:'<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>'},
     {v:'subpartners', label:'パートナー', icon:'<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>'},
@@ -2683,6 +2696,7 @@ function updateNavCounts(){
     // 退職・返金: 「今やるべきこと」の件数（KANOA）
     set('refunds', resignTodos().length||'', true);
   } else {
+    set('home', unreadNoticeCount()||'', true);
     set('pjlist', agencyProjects(S.agencyId).length);
     set('myrefs', agencyReferrals(S.agencyId).length);
     set('intake', intakeCount()||'', intakeCount()>0);
@@ -2712,6 +2726,8 @@ const VIEW_MAP = {
   recore:()=>viewRecore(),
   subpartners:()=>viewSubPartners(),
   subhome:()=>viewSubHome(),
+  home:()=>viewAgencyHome(),
+  notices:()=>viewNotices(),
   kanoarecore:()=>viewKanoaRecore(),
 };
 function render(){
@@ -2890,7 +2906,7 @@ function dataSig(d){
   // 全テーブルの全フィールドをJSON化して指紋を作る。
   // フィールドやテーブルを将来追加しても、自動的に変更検知の対象になる（漏れゼロ）。
   // 同期対象の全テーブルを列挙。新テーブルを足したらここに1語追加するだけ。
-  const TABLES=['referrals','projects','assignments','agencies','messages','tasks','members','documents','invoices','reflog','logins','intake'];
+  const TABLES=['referrals','projects','assignments','agencies','messages','tasks','members','documents','invoices','reflog','logins','intake','notices'];
   const parts=[];
   for(const t of TABLES){
     const arr=d[t]||[];
@@ -2934,7 +2950,7 @@ let _committing=false;
    「送信できたと出るのにスレッドに出てこない」の原因になっていた。
    ・サーバーに無い ＋ 未送信 → 残す（送信直後の行を守る）
    ・サーバーに無い ＋ 送信済み → 消す（他の端末で削除された行）              */
-const _MERGE_TABLES=['messages','referrals','tasks','members','invoices','reflog','intake','projects','agencies'];
+const _MERGE_TABLES=['messages','referrals','tasks','members','invoices','reflog','intake','projects','agencies','notices'];
 function mergeUnsent(fresh){
   if(DEMO_MODE || !fresh) return fresh;
   for(const t of _MERGE_TABLES){
@@ -3520,8 +3536,8 @@ function viewAgencyProjects(){
   setHeader('案件一覧', '貴社に公開されている案件');
   let pjs = agencyProjects(S.agencyId);
   const c=document.getElementById('content');
-  const todoPanel=agencyTodoPanel();
-  if(!pjs.length){ c.innerHTML=`<div class="content-narrow">${todoPanel}${emptyState('公開中の案件はありません','KANOAから案件が公開されると表示されます')}</div>`; return; }
+  // 「要対応」はホーム画面に集約したため、ここには出さない
+  if(!pjs.length){ c.innerHTML=`<div class="content-narrow">${emptyState('公開中の案件はありません','KANOAから案件が公開されると表示されます')}</div>`; return; }
   const sortFns={
     reward:(a,b)=>(effReward(b.id,S.agencyId).suc+effReward(b.id,S.agencyId).ref)-(effReward(a.id,S.agencyId).suc+effReward(a.id,S.agencyId).ref),
     rate:(a,b)=>selData(projectReferrals(b.id)).docRate-selData(projectReferrals(a.id)).docRate,
@@ -3529,7 +3545,6 @@ function viewAgencyProjects(){
   };
   pjs=pjs.slice().sort(sortFns[pjSort]||sortFns.reward);
   c.innerHTML = `
-    ${todoPanel}
     <div class="chips" style="margin-bottom:16px">
       <span class="meta-hint" style="align-self:center;margin-right:4px">並び替え</span>
       <button class="chip ${pjSort==='reward'?'on':''}" data-act="pj-sort" data-s="reward">報酬が高い順</button>
@@ -5780,6 +5795,24 @@ document.addEventListener('click', e=>{
     case 'send-msg': sendCurrent(t.dataset.ag); break;
     case 'mention-open': openMentionPicker(); break;
     case 'broadcast': modalBroadcast(); break;
+    /* お知らせ（掲示板） */
+    case 'notice-new': modalEditNotice(null); break;
+    case 'notice-edit': modalEditNotice(t.dataset.id); break;
+    case 'notice-save': saveNotice(t.dataset.mode); break;
+    case 'notice-filter': noticeFilter=t.dataset.v||''; viewNotices(); break;
+    case 'notice-publish': setNoticeStatus(t.dataset.id,'published'); break;
+    case 'notice-unpublish': setNoticeStatus(t.dataset.id,'draft'); break;
+    case 'notice-pin': { const n=(DB.notices||[]).find(x=>x.id===t.dataset.id); if(n){ n.pinned=!n.pinned; n.updated=nowTS(); save(); viewNotices(); toast(n.pinned?'ピン留めしました':'ピンを外しました'); } break; }
+    case 'notice-del': { const n=(DB.notices||[]).find(x=>x.id===t.dataset.id); if(!n) break;
+      if(confirm(`「${n.title||'（無題）'}」を削除します。よろしいですか？`)){
+        DB.notices=DB.notices.filter(x=>x.id!==n.id);
+        if(!DEMO_MODE) SUPA.delRow('notices','id',n.id);
+        save(); viewNotices(); toast('削除しました'); } break; }
+    case 'notice-aud': { if(_noticeDraft){ _noticeDraft.audience=t.dataset.v; renderNoticeModal(); } break; }
+    case 'notice-ag': { if(_noticeDraft){ const id=t.dataset.ag; if(_noticeDraft.agIds.has(id)) _noticeDraft.agIds.delete(id); else _noticeDraft.agIds.add(id); renderNoticeModal(); } break; }
+    case 'notice-ag-all': { if(_noticeDraft){ _noticeDraft.agIds=new Set(DB.agencies.filter(a=>a.status==='active').map(a=>a.id)); renderNoticeModal(); } break; }
+    case 'notice-ag-none': { if(_noticeDraft){ _noticeDraft.agIds=new Set(); renderNoticeModal(); } break; }
+    case 'notice-pin-toggle': break;   // チェックボックスは保存時に読む（再描画すると入力が消えるため）
     case 'supa-config': modalSupaConfig(); break;
     case 'supa-save': { let url=(val('supaUrl')||'').trim(), key=(val('supaKey')||'').trim(); if(!url){ toast('Project URL を入力してください'); break; } url=url.replace(/\/+$/,'').replace(/\/rest\/v1$/,''); try{ localStorage.setItem('kanoa_supa_cfg', JSON.stringify({url,key})); }catch(e){} toast('接続設定を保存しました。再読み込みします'); setTimeout(()=>location.reload(),700); break; }
     case 'supa-demo': { try{ localStorage.setItem('kanoa_supa_cfg', JSON.stringify({url:'',key:''})); }catch(e){} toast('デモモードに戻します'); setTimeout(()=>location.reload(),700); break; }
@@ -8733,7 +8766,7 @@ function resetSessionCaches(){
   // → デモでは保存済みデータを読み直す。
   try{
     DB = DEMO_MODE ? load()
-       : {agencies:[],projects:[],assignments:[],referrals:[],messages:[],tasks:[],members:[],activity:[],invoices:[],reflog:[],intake:[],subaccounts:[],logins:[]};
+       : {agencies:[],projects:[],assignments:[],referrals:[],messages:[],tasks:[],members:[],activity:[],invoices:[],reflog:[],intake:[],subaccounts:[],logins:[],notices:[]};
   }catch(e){}
 }
 async function loadSubPartners(force){
@@ -9700,6 +9733,250 @@ function crossDupBadge(r){
   return `<span class="dup-badge dup-later" data-act="open-ref" data-id="${r.id}" title="他社が先に同じ方を送客済み（後着）。先着が優先されます。" style="display:inline-flex;align-items:center;gap:3px;font-size:9.5px;font-weight:700;padding:1px 6px;border-radius:5px;margin-left:6px;background:#FEF3C7;color:#B45309;cursor:pointer"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>重複・後着</span>`;
 }
 
+
+
+/* ════════════════════ 管理者からのお知らせ（掲示板） ════════════════════
+   ・KANOAが作成・編集し、「全パートナー」か「選んだパートナーだけ」に公開する
+   ・パートナーは「ホーム」で読む（下書きは見えない）
+   ・保存先: DB.notices = [{id,title,body,status,audience,agIds,pinned,publishedOn,created,updated}]
+     status  : 'draft'（下書き・パートナーには見えない）/ 'published'（公開中）
+     audience: 'all'（全パートナー）/ 'select'（agIds のパートナーだけ）
+   ════════════════════════════════════════════════════════════ */
+function ensureNotices(){ if(!DB.notices) DB.notices=[]; return DB.notices; }
+
+/* このお知らせを、このパートナーが読めるか */
+function noticeVisibleTo(n, agId){
+  if(!n || n.status!=='published') return false;
+  if(n.audience==='select') return (n.agIds||[]).includes(agId);
+  return true;
+}
+/* パートナーが読めるお知らせ（ピン留め優先、次に公開日の新しい順） */
+function agencyNotices(agId){
+  ensureNotices();
+  const key=n=>(n.publishedOn||n.created||'');
+  return DB.notices.filter(n=>noticeVisibleTo(n, agId))
+    .sort((a,b)=> (b.pinned?1:0)-(a.pinned?1:0) || (key(a)<key(b)?1:-1));
+}
+/* 公開先の説明文 */
+function noticeAudienceLabel(n){
+  if(n.audience!=='select') return '全パートナー';
+  const ids=n.agIds||[];
+  if(!ids.length) return '公開先なし';
+  const names=ids.map(id=>(agency(id)||{}).name||id);
+  return names.length<=2 ? names.join('・') : `${names[0]} ほか${names.length-1}社`;
+}
+
+/* ── 既読管理（端末内。DBに列を足さずに「新着」を出すため）── */
+function _seenNoticeKey(){ return 'kanoa_seen_notices_'+(S.agencyId||'x'); }
+function seenNoticeIds(){
+  try{ const a=JSON.parse(localStorage.getItem(_seenNoticeKey())||'[]'); return new Set(Array.isArray(a)?a:[]); }
+  catch(e){ return new Set(); }
+}
+function markNoticesSeen(){
+  if(S.role!=='agency') return;
+  try{
+    const ids=agencyNotices(S.agencyId).map(n=>n.id);
+    localStorage.setItem(_seenNoticeKey(), JSON.stringify(ids));
+  }catch(e){}
+}
+function unreadNoticeCount(){
+  if(S.role!=='agency') return 0;
+  const seen=seenNoticeIds();
+  return agencyNotices(S.agencyId).filter(n=>!seen.has(n.id)).length;
+}
+
+/* ── パートナー：ホーム ───────────────────────────────── */
+function viewAgencyHome(){
+  const a=agency(S.agencyId)||{};
+  setHeader('ホーム', (a.name||'')+' の要対応と、KANOAからのお知らせ');
+  const c=document.getElementById('content');
+  const notices=agencyNotices(S.agencyId);
+  const seen=seenNoticeIds();
+
+  const noticeCard=n=>{
+    const isNew=!seen.has(n.id);
+    return `<div class="panel" style="padding:14px 16px;margin-bottom:10px${n.pinned?';border-color:var(--accent)':''}">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+        ${n.pinned?'<span class="tag" style="background:var(--accent-soft);color:var(--accent)">ピン留め</span>':''}
+        ${isNew?'<span class="tag" style="background:var(--r-bg,#FDEEF1);color:var(--r)">新着</span>':''}
+        <span class="cell-sub" style="margin-left:auto">${esc(n.publishedOn||(n.created||'').slice(0,10))}</span>
+      </div>
+      <div style="font-weight:700;font-size:14.5px;margin-bottom:6px">${esc(n.title||'（無題）')}</div>
+      <div style="font-size:13px;line-height:1.75;color:var(--ink-soft);white-space:pre-wrap">${esc(n.body||'')}</div>
+    </div>`;
+  };
+
+  c.innerHTML=`<div class="content-narrow">
+    ${agencyTodoPanel()}
+    <div class="sect" style="margin-top:18px">
+      <div class="sect-head"><div class="sect-title">管理者からのお知らせ</div>
+        <div style="flex:1"></div><span class="cell-sub">${notices.length}件</span></div>
+      ${notices.length ? notices.map(noticeCard).join('')
+        : `<div class="panel" style="padding:22px">${emptyState('お知らせはありません','KANOAからのお知らせがここに表示されます')}</div>`}
+    </div>
+  </div>`;
+  // 開いた時点で既読にする（バッジを消す）
+  markNoticesSeen();
+  updateNavCounts();
+}
+
+/* ── KANOA：お知らせ管理 ─────────────────────────────── */
+let noticeFilter='';   // '' | 'published' | 'draft'
+function viewNotices(){
+  ensureNotices();
+  setHeader('お知らせ', 'パートナーのホームに表示されるお知らせを作成・公開します',
+    `<button class="btn btn-primary btn-sm" data-act="notice-new"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>お知らせを作成</button>`);
+  const c=document.getElementById('content');
+  const all=DB.notices.slice().sort((a,b)=>{
+    const k=n=>(n.publishedOn||n.created||'');
+    return (b.pinned?1:0)-(a.pinned?1:0) || (k(a)<k(b)?1:-1);
+  });
+  const list = noticeFilter ? all.filter(n=>(n.status||'draft')===noticeFilter) : all;
+  const nPub=all.filter(n=>n.status==='published').length;
+  const nDraft=all.length-nPub;
+  const seg=(v,label,n)=>`<button class="seg-btn ${noticeFilter===v?'on':''}" data-act="notice-filter" data-v="${v}">${label}（${n}）</button>`;
+
+  c.innerHTML=`<div class="content-narrow">
+    <div class="kpi-grid">
+      ${kpi('公開中', nPub+'<span class="unit">件</span>','var(--g)')}
+      ${kpi('下書き', nDraft+'<span class="unit">件</span>', nDraft?'var(--a)':'var(--muted)')}
+      ${kpi('パートナー', DB.agencies.filter(x=>x.status==='active').length+'<span class="unit">社</span>','var(--accent)')}
+    </div>
+    <div class="seg" style="margin-bottom:14px">${seg('','すべて',all.length)}${seg('published','公開中',nPub)}${seg('draft','下書き',nDraft)}</div>
+    ${list.length ? list.map(n=>`
+      <div class="panel" style="padding:14px 16px;margin-bottom:10px${n.pinned?';border-color:var(--accent)':''}">
+        <div style="display:flex;align-items:center;gap:7px;margin-bottom:7px;flex-wrap:wrap">
+          ${n.status==='published'
+            ? '<span class="tag" style="background:#E8F6EE;color:#15803D">公開中</span>'
+            : '<span class="tag" style="background:var(--a-bg);color:var(--a)">下書き</span>'}
+          ${n.pinned?'<span class="tag" style="background:var(--accent-soft);color:var(--accent)">ピン留め</span>':''}
+          <span class="tag">${esc(noticeAudienceLabel(n))}</span>
+          <span class="cell-sub" style="margin-left:auto">${esc(n.publishedOn||(n.created||'').slice(0,10)||'—')}</span>
+        </div>
+        <div style="font-weight:700;font-size:14.5px;margin-bottom:5px">${esc(n.title||'（無題）')}</div>
+        <div style="font-size:12.5px;line-height:1.7;color:var(--soft);white-space:pre-wrap">${esc((n.body||'').slice(0,140))}${(n.body||'').length>140?'…':''}</div>
+        <div style="display:flex;gap:7px;margin-top:11px;flex-wrap:wrap">
+          <button class="btn btn-ghost btn-sm" data-act="notice-edit" data-id="${n.id}">編集</button>
+          ${n.status==='published'
+            ? `<button class="btn btn-ghost btn-sm" data-act="notice-unpublish" data-id="${n.id}">非公開にする</button>`
+            : `<button class="btn btn-primary btn-sm" data-act="notice-publish" data-id="${n.id}">公開する</button>`}
+          <button class="btn btn-ghost btn-sm" data-act="notice-pin" data-id="${n.id}">${n.pinned?'ピンを外す':'ピン留め'}</button>
+          <div style="flex:1"></div>
+          <button class="btn btn-danger btn-sm" data-act="notice-del" data-id="${n.id}">削除</button>
+        </div>
+      </div>`).join('')
+      : `<div class="panel" style="padding:26px">${emptyState('お知らせがありません','「お知らせを作成」から追加できます')}</div>`}
+  </div>`;
+}
+
+/* 編集モーダル。公開先の選択状態は _noticeDraft に保持する（再描画で消えないように） */
+let _noticeDraft=null;
+function modalEditNotice(id){
+  ensureNotices();
+  const n = id ? DB.notices.find(x=>x.id===id) : null;
+  _noticeDraft = {
+    id: n?n.id:null,
+    audience: n?(n.audience||'all'):'all',
+    agIds: new Set(n?(n.agIds||[]):[]),
+    pinned: n?!!n.pinned:false,
+    title: n?(n.title||''):'',
+    body: n?(n.body||''):'',
+  };
+  renderNoticeModal();
+}
+function renderNoticeModal(){
+  const d=_noticeDraft; if(!d) return;
+  // 入力中の値を拾ってから作り直す（公開先を切り替えても本文が消えないように）
+  const tEl=document.getElementById('ntTitle'), bEl=document.getElementById('ntBody');
+  if(tEl) d.title=tEl.value; if(bEl) d.body=bEl.value;
+  const ags=DB.agencies.filter(a=>a.status==='active');
+  const chips=ags.map(a=>{
+    const on=d.agIds.has(a.id);
+    return `<button type="button" data-act="notice-ag" data-ag="${a.id}"
+      style="display:inline-flex;align-items:center;gap:7px;padding:6px 11px;border-radius:999px;cursor:pointer;font-size:12.5px;
+      border:1.5px solid ${on?'var(--accent)':'var(--line)'};background:${on?'var(--accent-soft)':'var(--surface)'};color:${on?'var(--accent)':'var(--muted)'};font-weight:${on?'600':'500'}">
+      <span style="width:19px;height:19px;border-radius:50%;background:${agColor(a.id)};color:#fff;display:grid;place-items:center;font-size:9.5px;font-weight:700">${esc((a.name||'?').slice(0,1))}</span>
+      ${esc(a.name)}<span style="font-size:13px;line-height:1;opacity:${on?'1':'.35'}">${on?'×':'＋'}</span></button>`;
+  }).join('');
+  const audBtn=(v,label,sub)=>`<button type="button" data-act="notice-aud" data-v="${v}"
+    style="flex:1;text-align:left;padding:10px 12px;border-radius:10px;cursor:pointer;
+    border:1.5px solid ${d.audience===v?'var(--accent)':'var(--line)'};background:${d.audience===v?'var(--accent-soft)':'var(--surface)'}">
+    <div style="font-size:13px;font-weight:700;color:${d.audience===v?'var(--accent)':'var(--ink)'}">${label}</div>
+    <div class="cell-sub" style="font-size:11px;margin-top:2px">${sub}</div></button>`;
+  const prevScroll=(document.querySelector('#modalCard .modal-scroll')||{}).scrollTop||0;
+  showModal(`
+    <div class="modal-title">${d.id?'お知らせを編集':'お知らせを作成'}</div>
+    <div class="modal-sub">公開すると、対象パートナーの「ホーム」に表示されます。</div>
+    <div class="modal-scroll">
+      <div class="field full"><label>タイトル <span style="color:var(--r)">*</span></label>
+        <input id="ntTitle" value="${esc(d.title)}" placeholder="例：楽天案件の新しい募集枠を追加しました"></div>
+      <div class="field full" style="margin-top:10px"><label>本文</label>
+        <textarea id="ntBody" rows="7" placeholder="パートナーに伝えたい内容を入力してください。改行できます。">${esc(d.body)}</textarea></div>
+      <div class="field full" style="margin-top:12px"><label>公開先</label>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          ${audBtn('all','全パートナー','提携中のすべての会社に表示')}
+          ${audBtn('select','選んだパートナーだけ','下で選んだ会社にだけ表示')}
+        </div>
+      </div>
+      ${d.audience==='select'?`
+      <div class="field full" style="margin-top:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:7px">
+          <label style="margin:0">表示する会社（${d.agIds.size}/${ags.length}社）</label>
+          <div style="display:flex;gap:6px">
+            <button type="button" class="btn btn-ghost btn-sm" data-act="notice-ag-all" style="padding:3px 10px;font-size:11.5px">全選択</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-act="notice-ag-none" style="padding:3px 10px;font-size:11.5px">全解除</button>
+          </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:7px">${chips||'<span class="cell-sub">提携中のパートナーがいません</span>'}</div>
+      </div>`:''}
+      <label class="lcheck" style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;margin-top:12px;cursor:pointer">
+        <input type="checkbox" id="ntPin" ${d.pinned?'checked':''} data-act="notice-pin-toggle">
+        <span style="font-size:13px">ピン留めする（ホームの一番上に固定）</span>
+      </label>
+      <div id="ntErr" style="color:var(--r);font-size:12px;min-height:16px;margin-top:6px"></div>
+    </div>
+    <div class="modal-foot">
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-act="closemodal">キャンセル</button>
+        <button class="btn btn-ghost" data-act="notice-save" data-mode="draft">下書き保存</button>
+        <button class="btn btn-primary" data-act="notice-save" data-mode="publish">公開する</button>
+      </div>
+    </div>`, 'modal-tall');
+  const sc=document.querySelector('#modalCard .modal-scroll'); if(sc) sc.scrollTop=prevScroll;
+}
+function saveNotice(mode){
+  const d=_noticeDraft; if(!d) return;
+  const err=m=>{ const e=document.getElementById('ntErr'); if(e) e.textContent=m; };
+  const title=(val('ntTitle')||'').trim();
+  const body=((document.getElementById('ntBody')||{}).value||'').trim();
+  const pinEl=document.getElementById('ntPin'); if(pinEl) d.pinned=pinEl.checked;
+  if(!title){ err('タイトルを入力してください'); return; }
+  if(mode==='publish' && d.audience==='select' && !d.agIds.size){ err('公開先の会社を1社以上選んでください'); return; }
+  ensureNotices();
+  let n = d.id ? DB.notices.find(x=>x.id===d.id) : null;
+  const isNew=!n;
+  if(!n){ n={id:uid('N'), created:nowTS()}; DB.notices.unshift(n); }
+  n.title=title; n.body=body; n.pinned=!!d.pinned;
+  n.audience=d.audience; n.agIds=[...d.agIds];
+  n.updated=nowTS();
+  if(mode==='publish'){ if(n.status!=='published') n.publishedOn=todayISO(); n.status='published'; }
+  else { n.status='draft'; }
+  DB.activity.unshift({ts:nowTS(),actor:'KANOA',action:isNew?'お知らせ作成':'お知らせ更新',detail:title});
+  save(); _noticeDraft=null; closeModal(); updateNavCounts();
+  if(S.view==='notices') viewNotices();
+  toast(mode==='publish'?`お知らせを公開しました（${noticeAudienceLabel(n)}）`:'下書きを保存しました');
+}
+function setNoticeStatus(id, status){
+  const n=(DB.notices||[]).find(x=>x.id===id); if(!n) return;
+  if(status==='published'){
+    if(n.audience==='select' && !(n.agIds||[]).length){ toast('公開先が選ばれていません。編集から会社を選んでください'); return; }
+    if(!n.publishedOn) n.publishedOn=todayISO();
+  }
+  n.status=status; n.updated=nowTS();
+  save(); updateNavCounts();
+  if(S.view==='notices') viewNotices();
+  toast(status==='published'?'公開しました':'非公開にしました');
+}
 
 
 /* ════════════════════ 二次パートナー向け 進捗確認ページ（?track=xxx） ════════════════════
