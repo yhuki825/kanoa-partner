@@ -1091,6 +1091,12 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     g = /column ([A-Za-z0-9_.]+) does not exist/.exec(m);             if(g) return String(g[1]).split('.').pop();
     return null;
   }
+  /* この行を一度でもサーバーへ送れているか。
+     まだ送れていないローカル行を、古いサーバー取得で消してしまわないための判定に使う。 */
+  function isSent(table, key){
+    const m=_sent[table];
+    return !!(m && key!=null && m[String(key)]!==undefined);
+  }
   /* サーバーから読み直した内容を「送信済み」として記録する（無駄な再送を防ぐ） */
   function markSynced(table, rows){
     const m=_sent[table]||(_sent[table]=Object.create(null));
@@ -1567,7 +1573,7 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     if(!sb) return;
     try{ await sb.from('login_logs').insert({agency_id:agId,success:!!success,method:method||'パスワード'}); }catch(e){ console.warn('login_log insert failed',e); }
   }
-  return { boot, ensureClient, signInPassword, signInOtp, signOut, resetPassword, updatePassword, partnerLogin, loginThen, loadAll, loadMessages, scheduleSync, syncNow, isBusy, delRow, insertReferral, subpartnerRegister, subpartnerList, subpartnerUpdate, trackerIssue, trackerGet, trackerSetPw, subpartnerPwGet, subpartnerPwSet, trackerView, trackerInfo, trackerRows, trackerUpdatePerson, trackerAddDoc, trackerDelDoc, attachDocs, formPartnerInfo, trackerList, trackerRevoke, uploadDoc, docUrl, removeDoc, insertLoginLog, subscribeRealtime, unsubscribeRealtime, realtimeHealthy, realtimeProven, setRealtimeAuth, forceReconnectRealtime };
+  return { boot, ensureClient, signInPassword, signInOtp, signOut, resetPassword, updatePassword, partnerLogin, loginThen, loadAll, loadMessages, scheduleSync, syncNow, isBusy, isSent, delRow, insertReferral, subpartnerRegister, subpartnerList, subpartnerUpdate, trackerIssue, trackerGet, trackerSetPw, subpartnerPwGet, subpartnerPwSet, trackerView, trackerInfo, trackerRows, trackerUpdatePerson, trackerAddDoc, trackerDelDoc, attachDocs, formPartnerInfo, trackerList, trackerRevoke, uploadDoc, docUrl, removeDoc, insertLoginLog, subscribeRealtime, unsubscribeRealtime, realtimeHealthy, realtimeProven, setRealtimeAuth, forceReconnectRealtime };
 })();
 
 const LS_KEY = 'kanoa_relay_v22';
@@ -2871,6 +2877,7 @@ async function pollMessages(){
   try{
     const freshMsgs=await SUPA.loadMessages();
     if(!freshMsgs) return;
+    if(SUPA.isBusy && SUPA.isBusy()) return;   // 通信中にローカル変更が入った → 今回の取得は捨てる
     // 現DBのmessagesだけを差し替えたスナップショットを作り、共通のcommitFreshを通す。
     // これにより applyRefresh と同じ再描画ルール・競合防止が効く。
     const snapshot={...DB, messages:freshMsgs};
@@ -2918,9 +2925,32 @@ let _refreshing=false;
    全体更新（applyRefresh）と連絡だけの更新（pollMessages）が、
    まったく同じ再描画ルールを通ることで、DB書き換えの競合と取りこぼしを無くす。 */
 let _committing=false;
+/* ── まだサーバーへ送れていないローカル行を守る ──────────────────
+   自動更新（1秒ごとのpollMessages／3秒ごとのapplyRefresh）は通信に数百ms かかる。
+   その通信中に送信すると、返ってきた「送信前のサーバー内容」で DB を丸ごと
+   置き換えてしまい、まだアップロードされていない行が消えていた。
+   （isBusy() の判定は通信を始める前にしか行われず、待っている間の変更を守れない）
+   一括送信のように一度に大量の行を作るときほど当たりやすく、
+   「送信できたと出るのにスレッドに出てこない」の原因になっていた。
+   ・サーバーに無い ＋ 未送信 → 残す（送信直後の行を守る）
+   ・サーバーに無い ＋ 送信済み → 消す（他の端末で削除された行）              */
+const _MERGE_TABLES=['messages','referrals','tasks','members','invoices','reflog','intake','projects','agencies'];
+function mergeUnsent(fresh){
+  if(DEMO_MODE || !fresh) return fresh;
+  for(const t of _MERGE_TABLES){
+    const cur=DB[t]; if(!Array.isArray(cur) || !cur.length) continue;
+    const arr=Array.isArray(fresh[t])?fresh[t]:[];
+    const have=new Set(arr.map(r=>r&&r.id));
+    const keep=cur.filter(r=> r && r.id!=null && !have.has(r.id)
+                              && !(SUPA.isSent && SUPA.isSent(t, r.id)));
+    if(keep.length){ fresh[t]=arr.concat(keep); console.warn('[sync] '+t+': 未送信の'+keep.length+'件を保持しました'); }
+  }
+  return fresh;
+}
 function commitFresh(fresh, opts){
   opts=opts||{};
   if(_committing) return false;   // 再入防止（無限ループ・スタックオーバーフロー対策）
+  fresh=mergeUnsent(fresh);       // 未送信のローカル行を取りこぼさない
   // 変化検知（全フィールドJSON比較）。差分ゼロなら一切さわらない
   if(dataSig(fresh)===dataSig(DB)) return false;
   _committing=true;
@@ -2961,6 +2991,7 @@ async function applyRefresh(){
   _refreshing=true;
   try{
     const fresh=await SUPA.loadAll();
+    if(SUPA.isBusy && SUPA.isBusy()) return;   // 通信中にローカル変更が入った → 今回の取得は捨てる
     if(fresh) commitFresh(fresh);
   }catch(e){}
   finally{ _refreshing=false; }
