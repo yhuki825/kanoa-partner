@@ -5194,7 +5194,7 @@ function modalNewReferral(pjId, agId){
       <div class="field"><label>希望エリア <span style="color:var(--r)">*</span></label><select id="mArea">${areaOptions('')}</select></div>
       <div class="field"><label>電話番号 <span style="color:var(--r)">*</span></label><input id="mPhone" placeholder="090-0000-0000" inputmode="tel"><div class="cell-sub" style="font-size:11px;margin-top:3px">必須。ハイフンは自動で付きます</div></div>
       <div class="field"><label>メール <span style="color:var(--r)">*</span></label><input id="mEmail" type="email" placeholder="you@example.com"></div>
-      <div class="field full"><label>住所 <span style="color:var(--r)">*</span></label><input id="mAddress" placeholder="東京都〇〇区..."></div>
+      <div class="field full"><label>住所 <span style="color:var(--r)">　</span></label><input id="mAddress" placeholder="東京都〇〇区..."></div>
       <div class="field full"><label>集客元<span style="font-weight:400;color:var(--muted);font-size:11px">（任意・空欄でOK）</span></label><input id="mSrc" placeholder="例：自社サイト / ◯◯エージェント / 紹介 など"></div>
     </div>
     <div class="modal-actions">
@@ -6087,8 +6087,11 @@ async function saveReferral(pjId){
   const _email=val('mEmail');
   if(!_email){ toast('メールアドレスを入力してください'); const _el=document.getElementById('mEmail'); if(_el) _el.focus(); return; }
   if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(_email)){ toast('メールアドレスの形式をご確認ください'); const _el=document.getElementById('mEmail'); if(_el) _el.focus(); return; }
-  const _address=val('mAddress');
-  if(!_address){ toast('住所を入力してください'); const _el=document.getElementById('mAddress'); if(_el) _el.focus(); return; }
+  
+  //住所の必須化を任意とする
+  // const _address=val('mAddress');
+  //if(!_address){ toast('住所を入力してください'); const _el=document.getElementById('mAddress'); if(_el) _el.focus(); return; }
+
   // 電話番号による重複チェック（全社横断・早い者勝ち）
   const _dup=findPhoneDuplicate(_phone);
   if(_dup){
