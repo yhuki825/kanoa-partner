@@ -975,7 +975,7 @@ const SUPA = (()=>{
   const fromAgency=r=>({id:r.id,name:r.name,contact:r.contact,email:r.email,status:r.status,source:r.source,joined:r.joined,code:r.code,special:r.special||'',license:!!r.license,bank:r.bank||'',payRoute:r.pay_route||'A',pwHash:r.pw_hash||null,inviteToken:r.invite_token||null,inviteIssuedAt:r.invite_issued_at||null,inviteUsedAt:r.invite_used_at||null});
   const toAgency  =a=>({id:a.id,name:a.name,contact:a.contact,email:a.email,status:a.status,source:a.source,joined:a.joined||null,code:a.code||null,special:a.special||null,license:!!a.license,bank:a.bank||null,pay_route:a.payRoute||'A',pw_hash:a.pwHash||null,invite_token:a.inviteToken||null,invite_issued_at:a.inviteIssuedAt||null,invite_used_at:a.inviteUsedAt||null});
   const fromProject=r=>({id:r.id,name:r.name,client:r.client,logo:r.logo,color:r.color,status:r.status,position:r.position,employment:r.employment,salary:r.salary,location:r.location,summary:r.summary,conditions:r.conditions,requirements:r.requirements||[],flow:r.flow||[],rewardType:r.reward_type,referralReward:r.referral_reward,successReward:r.success_reward,clientFee:r.client_fee||0,headcount:r.headcount,seminar:r.seminar,passNote:r.pass_note,caseStudy:r.case_study,...(r.detail||{})});
-  const toProject  =p=>({id:p.id,name:p.name,client:p.client,logo:p.logo,color:p.color,status:p.status,position:p.position,employment:p.employment,salary:p.salary,location:p.location,summary:p.summary,conditions:p.conditions,requirements:p.requirements||[],flow:p.flow||[],reward_type:p.rewardType,referral_reward:p.referralReward||0,success_reward:p.successReward||0,client_fee:p.clientFee||0,headcount:p.headcount,seminar:p.seminar,pass_note:p.passNote,case_study:p.caseStudy,detail:{rewardModel:p.rewardModel||null,baseSalaryByArea:p.baseSalaryByArea||null,docReqs:p.docReqs||null,companyOverview:p.companyOverview||null,incomeRange:p.incomeRange||null,incentives:p.incentives||null,careerPath:p.careerPath||null,careerNote:p.careerNote||null,selection:p.selection||null,preTasks:p.preTasks||null,preDocs:p.preDocs||null,preNote:p.preNote||null,interviewTips:p.interviewTips||null,faq:p.faq||null,links:p.links||null,rewardFormula:p.rewardFormula||null,rewardExample:p.rewardExample||null,refundPolicy:p.refundPolicy||null}});
+  const toProject  =p=>({id:p.id,name:p.name,client:p.client,logo:p.logo,color:p.color,status:p.status,position:p.position,employment:p.employment,salary:p.salary,location:p.location,summary:p.summary,conditions:p.conditions,requirements:p.requirements||[],flow:p.flow||[],reward_type:p.rewardType,referral_reward:p.referralReward||0,success_reward:p.successReward||0,client_fee:p.clientFee||0,headcount:p.headcount,seminar:p.seminar,pass_note:p.passNote,case_study:p.caseStudy,detail:{rewardModel:p.rewardModel||null,checksEnabled:(p.checksEnabled==null?null:!!p.checksEnabled),baseSalaryByArea:p.baseSalaryByArea||null,docReqs:p.docReqs||null,companyOverview:p.companyOverview||null,incomeRange:p.incomeRange||null,incentives:p.incentives||null,careerPath:p.careerPath||null,careerNote:p.careerNote||null,selection:p.selection||null,preTasks:p.preTasks||null,preDocs:p.preDocs||null,preNote:p.preNote||null,interviewTips:p.interviewTips||null,faq:p.faq||null,links:p.links||null,rewardFormula:p.rewardFormula||null,rewardExample:p.rewardExample||null,refundPolicy:p.refundPolicy||null}});
   const fromAssign=r=>({pj:r.project_id,ag:r.agency_id,published:r.published,refOv:r.ref_override,sucOv:r.suc_override});
   const toAssign  =a=>({project_id:a.pj,agency_id:a.ag,published:!!a.published,ref_override:a.refOv??null,suc_override:a.sucOv??null});
   const fromIntake=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kana||'',phone:r.phone||'',email:r.email||'',address:r.address||'',area:r.area||'',src:r.source||'',company:r.company||'',note:r.note||'',docs:Array.isArray(r.docs)?r.docs:(r.docs?JSON.parse(r.docs):[]),source_type:r.source_type||'form',status:r.status||'pending',decidedAt:r.decided_at?TZ_toLocal(r.decided_at):'',refId:r.ref_id||'',rejectNote:r.reject_note||'',created:TZ_toLocal(r.created_at)||nowTS()});
@@ -5417,6 +5417,13 @@ function modalEditProject(pjId){
         <option value="open" ${v.status==='open'?'selected':''}>公開中</option>
         <option value="draft" ${v.status==='draft'?'selected':''}>下書き</option>
         <option value="closed" ${v.status==='closed'?'selected':''}>終了</option></select></div>
+      <div class="field full">
+        <label class="lcheck" style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;cursor:pointer;margin-top:2px">
+          <input type="checkbox" id="epChecks" ${(isNew?false:projectChecksOn(v.id))?'checked':''}>
+          <span style="font-size:13px">SPI・コンプライアンスチェックの受検管理を行う</span>
+        </label>
+        <div class="cell-sub" style="font-size:11px;margin-top:4px">ONにすると、この案件の候補者カードに「未案内／案内済み／受検済み」の受検欄が出ます（書類選考以降の方が対象）。</div>
+      </div>
       <div class="field"><label>送客単価 ¥</label><input id="epRef" type="number" value="${v.referralReward||0}"></div>
       <div class="field"><label>成功報酬 ¥</label><input id="epSuc" type="number" value="${v.successReward||0}"></div>
       <div class="field"><label>受領単価（客先→KANOA） ¥</label><input id="epFee" type="number" value="${v.clientFee||0}" placeholder="自社取り分の計算に使用"></div>
@@ -6147,6 +6154,9 @@ function saveProject(id){
     referralReward:Number(val('epRef'))||0, successReward:Number(val('epSuc'))||0,
     clientFee:Number(val('epFee'))||0,
   };
+  // チェック欄が無い状態で保存しても、既存の設定を勝手に消さない
+  const _chk=document.getElementById('epChecks');
+  if(_chk) data.checksEnabled=!!_chk.checked;
   if(!data.name){ toast('案件名を入力してください'); return; }
   if(id){ Object.assign(project(id),data); }
   else { DB.projects.push(Object.assign({id:uid('PJ'),logo:data.name.slice(0,1),color:'#4f46e5'},data)); }
@@ -7548,8 +7558,19 @@ function checkBadge(v){ const x=CHECK_STATUS[v||'none']||CHECK_STATUS.none;
   return `<span class="tag" style="background:${x.bg};color:${x.color};font-weight:600">${x.label}</span>`; }
 
 /* SPI/コンプラの管理対象か（楽天案件 & 書類選考以降 & 見送り/辞退でない） */
+/* この案件でSPI・コンプラの受検管理を行うか。
+   案件編集で明示的にON/OFFできる（checksEnabled）。
+   未設定の案件は従来どおり「楽天案件のみ対象」として扱う（既存の動きを変えない）。
+   ※以前は楽天案件かどうかだけで判定していたため、案件編集モーダルから作った案件では
+     楽天フラグが付かず、受検欄がどの候補者にも出ない状態になっていた。 */
+function projectChecksOn(pj){
+  const p=project(pj); if(!p) return false;
+  if(p.checksEnabled===true)  return true;
+  if(p.checksEnabled===false) return false;
+  return isRakutenProject(pj);
+}
 function needsChecks(r){
-  if(!isRakutenProject(r.pj)) return false;
+  if(!projectChecksOn(r.pj)) return false;
   const idx=STATUS_ORDER.indexOf(r.status);
   const scr=STATUS_ORDER.indexOf('screening');
   return idx>=scr && r.status!=='rejected' && r.status!=='declined';
