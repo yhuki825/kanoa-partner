@@ -363,6 +363,14 @@ select.icell.stsel{font-weight:600;border:1px solid var(--line-2);background:var
 .modal-grid .full{grid-column:1/-1}
 .modal-actions{display:flex;gap:9px;margin-top:20px}
 .modal-actions .btn{flex:1}
+/* 縦に長いモーダル（一括送信・一斉連絡）。
+   以前はカード全体を overflow:auto にしていたため、中の一覧の上でホイールを回すと
+   一覧だけが延々と動き、下にある「送信内容」と「送信」ボタンに到達できなかった。
+   → 中身だけをスクロールさせ、入力欄と操作ボタンは常に見える位置に固定する。 */
+.modal-card.modal-tall{display:flex;flex-direction:column;overflow:hidden}
+.modal-card.modal-tall > .modal-scroll{flex:1;min-height:0;overflow-y:auto;margin:0 -4px;padding:0 4px}
+.modal-card.modal-tall > .modal-foot{flex-shrink:0;padding-top:12px;border-top:1px solid var(--line);margin-top:12px}
+.modal-card.modal-tall > .modal-foot .modal-actions{margin-top:12px}
 
 /* toast */
 .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:11px 18px;border-radius:var(--r-sm);font-size:13px;font-weight:500;box-shadow:var(--sh-lg);z-index:120;opacity:0;pointer-events:none;transition:all .26s var(--ease);display:flex;align-items:center;gap:9px}
@@ -503,7 +511,7 @@ select.icell.stsel{font-weight:600;border:1px solid var(--line-2);background:var
 .link-row svg{color:var(--accent);flex-shrink:0}
 /* 候補者へ一括送信 */
 .bulk-list-head{display:flex;align-items:center;justify-content:space-between;margin:2px 0 6px}
-.bulk-list{max-height:30vh;overflow-y:auto;border:1px solid var(--line);border-radius:10px;padding:4px;margin-bottom:12px}
+.bulk-list{max-height:30vh;overflow-y:auto;overscroll-behavior:contain;border:1px solid var(--line);border-radius:10px;padding:4px;margin-bottom:12px}
 .bulk-row{display:flex;align-items:center;gap:10px;padding:8px 9px;border-radius:8px;cursor:pointer;transition:background .12s}
 .bulk-row:hover{background:var(--surface-2)}
 .bulk-row.on{background:var(--accent-soft)}
@@ -1618,11 +1626,24 @@ function TZ_toLocalDay(s){
 const nowTS = () => TZ_toLocal(new Date());
 /* 表示用（チャット）：保存時刻を端末の時間帯に変換して表示する。
    並び替えは msgCmp(tsr) で行うため、表示変換は順序に影響しない。 */
-function msgDate(m){ return _tzParse((m&&(m.tsr||m.ts))||''); }
+/* tsr はUTCの絶対時刻、ts は端末のローカル表記（nowTS）。
+   tsr が無いメッセージの ts をUTCとして読むと時差ぶん（日本なら9時間）ずれ、
+   表示時刻も並び順も狂う。ts はローカル時刻として解釈する。 */
+function _msgParse(m){
+  if(m && m.tsr) return _tzParse(m.tsr);
+  const s=(m&&m.ts)||''; if(!s) return null;
+  const t=String(s).trim();
+  if(/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?$/.test(t)){
+    const d=new Date(t.replace(' ','T'));   // オフセット無し＝ローカル時刻として解釈される
+    return isNaN(d.getTime())?null:d;
+  }
+  return _tzParse(t);
+}
+function msgDate(m){ return _msgParse(m); }
 function msgDay(m){ const d=msgDate(m); return d?TZ_toLocalDay(d):((m&&m.ts)||'').slice(0,10); }
 function msgHM(m){ const d=msgDate(m); return d?(_p2(d.getHours())+':'+_p2(d.getMinutes())):((m&&m.ts)||'').slice(11,16); }
 function msgMDHM(m){ const d=msgDate(m); return d?(_p2(d.getMonth()+1)+'-'+_p2(d.getDate())+' '+_p2(d.getHours())+':'+_p2(d.getMinutes())):((m&&m.ts)||'').slice(5,16); }
-function msgTime(m){ let s=(m&&(m.tsr||m.ts))||''; if(!s) return 0; s=String(s); if(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(s)) s=s.replace(' ','T')+':00Z'; const t=Date.parse(s); return isNaN(t)?0:t; }
+function msgTime(m){ const d=_msgParse(m); return d?d.getTime():0; }
 function msgCmp(a,b){ const d=msgTime(a)-msgTime(b); return d!==0?d:((a.id||'')<(b.id||'')?-1:1); }
 function thread(ag){ return DB.messages.filter(m=>m.ag===ag).sort(msgCmp); }
 /* ── 送客スレッド分割（refIdをスレッドキーに。null = 全体連絡） ── */
@@ -4416,8 +4437,8 @@ function saveAssignTask(){
   assignTask(text, to, ag, refId, due);
   // 相手の連絡（候補者スレッド or 全体）に依頼メッセージを自動投稿
   const note = `【タスク依頼】${text}${due?`（期限 ${due}）`:''}`;
-  if(isK){ DB.messages.push({id:uid('M'), ag:to, from:'kanoa', text:note, ts:nowTS(), read:false, refId:refId||null}); }
-  else   { DB.messages.push({id:uid('M'), ag:S.agencyId, from:'agency', text:note, ts:nowTS(), read:false, refId:refId||null}); }
+  if(isK){ pushMsg(to, 'kanoa', note, {refId:refId||null}); }
+  else   { pushMsg(S.agencyId, 'agency', note, {refId:refId||null}); }
   save(); closeModal(); updateNavCounts();
   toast(`${isK?partyLabel(to):'KANOA'}にタスクを依頼しました`);
   viewTasks();
@@ -4458,22 +4479,29 @@ function renderBroadcastModal(){
     </button>`;
   }).join('');
   const cnt=sel.size;
+  // 送信先をタップするたびに作り直すため、一覧のスクロール位置を引き継ぐ
+  const _prevScroll=(document.querySelector('#modalCard .modal-scroll')||{}).scrollTop||0;
   showModal(`
     <div class="modal-title">一斉連絡</div>
     <div class="modal-sub">送信先を選んでメッセージを送ります。不要な相手はタップで解除できます。</div>
-    <div class="field full" style="margin-bottom:6px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <label style="margin:0">送信先（${cnt}/${ags.length}社）</label>
-        <div style="display:flex;gap:6px">
-          <button type="button" class="btn btn-ghost btn-sm" data-act="bc-all" style="padding:3px 10px;font-size:11.5px">全選択</button>
-          <button type="button" class="btn btn-ghost btn-sm" data-act="bc-none" style="padding:3px 10px;font-size:11.5px">全解除</button>
+    <div class="modal-scroll">
+      <div class="field full" style="margin-bottom:6px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <label style="margin:0">送信先（${cnt}/${ags.length}社）</label>
+          <div style="display:flex;gap:6px">
+            <button type="button" class="btn btn-ghost btn-sm" data-act="bc-all" style="padding:3px 10px;font-size:11.5px">全選択</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-act="bc-none" style="padding:3px 10px;font-size:11.5px">全解除</button>
+          </div>
         </div>
+        <div style="display:flex;flex-wrap:wrap;gap:7px;padding:2px">${chips||'<span class="cell-sub">提携中のパートナーがいません</span>'}</div>
       </div>
-      <div style="display:flex;flex-wrap:wrap;gap:7px;max-height:26vh;overflow-y:auto;padding:2px">${chips||'<span class="cell-sub">提携中のパートナーがいません</span>'}</div>
     </div>
-    <div class="field full"><label>メッセージ</label><textarea id="bcInput" rows="5" placeholder="例：【新案件のご案内】楽天案件に加え、来週より新しい大型案件を公開予定です。送客枠を確保したい方はご連絡ください。">${esc(bcDraft||'')}</textarea></div>
-    <div class="modal-actions"><button class="btn btn-ghost" data-act="closemodal">キャンセル</button>
-      <button class="btn btn-primary" data-act="send-broadcast" ${cnt?'':'disabled'}>${cnt}社へ送信</button></div>`);
+    <div class="modal-foot">
+      <div class="field full"><label>メッセージ</label><textarea id="bcInput" rows="4" placeholder="例：【新案件のご案内】楽天案件に加え、来週より新しい大型案件を公開予定です。送客枠を確保したい方はご連絡ください。">${esc(bcDraft||'')}</textarea></div>
+      <div class="modal-actions"><button class="btn btn-ghost" data-act="closemodal">キャンセル</button>
+        <button class="btn btn-primary" data-act="send-broadcast" ${cnt?'':'disabled'}>${cnt}社へ送信</button></div>
+    </div>`, 'modal-tall');
+  const sc=document.querySelector('#modalCard .modal-scroll'); if(sc) sc.scrollTop=_prevScroll;
   const ta=document.getElementById('bcInput');
   if(ta) ta.addEventListener('input', ()=>{ bcDraft=ta.value; });
 }
@@ -4483,7 +4511,8 @@ function sendBroadcast(){
   const sel=bcSelected||new Set();
   const ags=DB.agencies.filter(a=>a.status==='active' && sel.has(a.id));
   if(!ags.length){ toast('送信先を1社以上選んでください'); return; }
-  ags.forEach(a=>DB.messages.push({id:uid('M'),ag:a.id,from:'kanoa',text,ts:nowTS(),read:false,refId:null}));
+  const _now=nowTS(), _iso=new Date().toISOString();
+  ags.forEach(a=>DB.messages.push({id:uid('M'),ag:a.id,from:'kanoa',text,ts:_now,tsr:_iso,read:false,refId:null,reactions:{}}));
   bcDraft=''; bcSelected=null;
   save(); closeModal(); updateNavCounts();
   if(S.view==='messages' && !S.threadAg) viewMessages();
@@ -4585,25 +4614,32 @@ function modalBulkSend(preIds){
   showModal(`
     <div class="modal-title">候補者へ一括送信</div>
     <div class="modal-sub">選んだ候補者それぞれの連絡スレッドに、同じ内容をまとめて送ります（自由入力）。${isK?'相手のパートナーに届きます。':'KANOAに届きます。'}</div>
-    <input id="bulkSearch" class="msg-search" style="padding-left:12px;margin-bottom:8px" placeholder="候補者名・パートナーで絞り込み" autocomplete="off">
-    ${pjChips}${statusChips}
-    <div class="bulk-list-head">
-      <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:12.5px;font-weight:600"><input type="checkbox" id="bulkSelAll" data-act="bulk-sel-all">表示中をすべて選択</label>
-      <span id="bulkCount" class="cell-sub">0名を選択</span>
+    <div class="modal-scroll">
+      <input id="bulkSearch" class="msg-search" style="padding-left:12px;margin-bottom:8px" placeholder="候補者名・パートナーで絞り込み" autocomplete="off">
+      ${pjChips}${statusChips}
+      <div class="bulk-list-head">
+        <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:12.5px;font-weight:600"><input type="checkbox" id="bulkSelAll" data-act="bulk-sel-all">表示中をすべて選択</label>
+        <span id="bulkCount" class="cell-sub">0名を選択</span>
+      </div>
+      <div id="bulkList" class="bulk-list"></div>
+      <div class="bulk-tmpls">${BULK_TEMPLATES.map((t,i)=>`<button class="tmpl-chip" data-act="bulk-tmpl" data-i="${i}">${esc(t.label)}</button>`).join('')}</div>
     </div>
-    <div id="bulkList" class="bulk-list"></div>
-    <div class="bulk-tmpls">${BULK_TEMPLATES.map((t,i)=>`<button class="tmpl-chip" data-act="bulk-tmpl" data-i="${i}">${esc(t.label)}</button>`).join('')}</div>
-    <div class="field full"><label>送信内容</label><textarea id="bulkText" rows="6" placeholder="例）【選考会のご案内】日時・オンラインURL・持ち物など。テンプレートから挿入して編集できます。"></textarea></div>
-    <div class="modal-actions"><button class="btn btn-ghost" data-act="closemodal">キャンセル</button>
-      <button class="btn btn-primary" id="bulkSendBtn" data-act="bulk-send">送信</button></div>`);
+    <div class="modal-foot">
+      <div class="field full"><label>送信内容</label><textarea id="bulkText" rows="4" placeholder="例）【選考会のご案内】日時・オンラインURL・持ち物など。上のテンプレートから挿入して編集できます。"></textarea></div>
+      <div class="modal-actions"><button class="btn btn-ghost" data-act="closemodal">キャンセル</button>
+        <button class="btn btn-primary" id="bulkSendBtn" data-act="bulk-send">送信</button></div>
+    </div>`, 'modal-tall');
   renderBulkList();
 }
 function sendBulk(){
   const text=val('bulkText'); if(!text||!text.trim()){ toast('送信内容を入力してください'); return; }
   if(!bulkSel.size){ toast('送信先の候補者を選んでください'); return; }
   const role=meRole(); let n=0;
+  const _now=nowTS(), _iso=new Date().toISOString();
   bulkSel.forEach(id=>{ const r=DB.referrals.find(x=>x.id===id); if(!r) return;
-    DB.messages.push({id:uid('M'), ag:r.ag, from:role, text:text.trim(), ts:nowTS(), read:false, refId:r.id}); n++; });
+    // tsr（絶対時刻）を必ず入れる。無いと ts（端末のローカル表記）をUTCとして解釈してしまい、
+    // 並び順と表示時刻が時差ぶんずれる。
+    DB.messages.push({id:uid('M'), ag:r.ag, from:role, text:text.trim(), ts:_now, tsr:_iso, read:false, refId:r.id, reactions:{}}); n++; });
   DB.activity.unshift({ts:nowTS(), actor:(role==='kanoa'?'KANOA':(agency(S.agencyId)?agency(S.agencyId).name:S.agencyId)), action:'一括送信', detail:`${n}名の候補者へ送信`});
   save(); bulkSel.clear(); closeModal(); updateNavCounts();
   toast(`${n}名の候補者へ送信しました`);
@@ -5346,7 +5382,15 @@ function modalEditProject(pjId){
 /* ════════════════════ OVERLAY / MODAL / TOAST ════════════════════ */
 function openOverlay(){ document.getElementById('overlay').classList.add('on'); document.getElementById('drawer').classList.add('on'); }
 function closeOverlay(){ S._agDrawer=null; document.getElementById('overlay').classList.remove('on'); document.getElementById('drawer').classList.remove('on'); }
-function showModal(html){ document.getElementById('modalCard').innerHTML=html; document.getElementById('modal').classList.add('on'); }
+/* cls: 追加クラス（'modal-tall' で「中身スクロール＋操作は固定」レイアウトになる）。
+   毎回クラスとスクロール位置を初期化するので、前に開いたモーダルの状態が残らない。 */
+function showModal(html, cls){
+  const card=document.getElementById('modalCard');
+  card.className='modal-card'+(cls?' '+cls:'');
+  card.innerHTML=html;
+  card.scrollTop=0;
+  document.getElementById('modal').classList.add('on');
+}
 function closeModal(){ document.getElementById('modal').classList.remove('on'); }
 let toastT;
 function toast(msg){ const t=document.getElementById('toast'); t.innerHTML=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>${esc(msg)}`; t.classList.add('on'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('on'),2200); }
@@ -5497,7 +5541,7 @@ document.addEventListener('click', e=>{
         DB.activity.unshift({ts:nowTS(),actor:'KANOA',action:'ステータス変更',detail:`${r.name} を「${statusDef(st).label}」に`});
         if(st==='offer'){ const need=missingDocsForStage(r,'offer'); const opt=missingOptionalForStage(r,'offer');
           if(need.length){ const txt=`【内定おめでとうございます】オファー提示のため、至急 ${need.join('・')} のご提出をお願いします。${opt.length?`（賞与の支払いがある場合は ${opt.join('・')} も）`:''}`;
-            DB.messages.push({id:uid('M'),ag:r.ag,from:'kanoa',text:txt,ts:nowTS(),read:false,refId:r.id}); }
+            pushMsg(r.ag, 'kanoa', txt, {refId:r.id}); }
         }
         save(); updateNavCounts();
         toast(`${r.name} を「${statusDef(st).label}」に変更しました`);
@@ -5522,7 +5566,7 @@ document.addEventListener('click', e=>{
         // 内定に進んだら、内定後の必要書類をKANOAから自動でリマインド
         if(s==='offer'){ const need=missingDocsForStage(r,'offer'); const opt=missingOptionalForStage(r,'offer');
           if(need.length){ const txt=`【内定おめでとうございます】オファー提示のため、至急 ${need.join('・')} のご提出をお願いします。${opt.length?`（賞与の支払いがある場合は ${opt.join('・')} も）`:''}`;
-            DB.messages.push({id:uid('M'),ag:r.ag,from:'kanoa',text:txt,ts:nowTS(),read:false,refId:r.id}); }
+            pushMsg(r.ag, 'kanoa', txt, {refId:r.id}); }
         }
         toast(`${r.name}：${STATUS[s].label} を「通過（○）」にしました`);
       } else if(next==='fail'){
@@ -5794,7 +5838,7 @@ document.addEventListener('click', e=>{
           const fromRole = completer==='kanoa' ? 'kanoa' : 'agency';
           const ag = tk.ag || (tk.owner!=='kanoa'?tk.owner:(tk.from!=='kanoa'?tk.from:null));
           if(ag){
-            DB.messages.push({id:uid('M'), ag, from:fromRole, text:`【タスク完了】「${tk.text}」が完了しました。`, ts:nowTS(), read:false, refId:tk.refId||null});
+            pushMsg(ag, fromRole, `【タスク完了】「${tk.text}」が完了しました。`, {refId:tk.refId||null});
             DB.activity.unshift({ts:nowTS(), actor:(completer==='kanoa'?'KANOA':(agency(ag)?agency(ag).name:ag)), action:'タスク完了', detail:tk.text});
             toast(`${partyLabel(tk.from)}に完了を通知しました`);
           }
