@@ -3428,7 +3428,7 @@ function referralTable(rows, opt={}){
     ${opt.showAgency?'<th data-act="rsort" data-k="ag" style="cursor:pointer">パートナー</th>':''}
     <th data-act="rsort" data-k="pj" style="cursor:pointer">案件</th>
     <th data-act="rsort" data-k="status" style="cursor:pointer">ステータス</th>
-    ${showSession?'<th>選考会</th>':''}<th data-act="rsort" data-k="created" style="cursor:pointer">送客日</th><th data-act="rsort" data-k="joined" style="cursor:pointer">入社月</th><th>資料</th><th class="num">報酬</th><th>次のアクション</th><th style="width:46px;text-align:center">連絡</th>
+    ${showSession?'<th>選考会</th>':''}<th data-act="rsort" data-k="created" style="cursor:pointer;min-width:76px">送客日</th><th data-act="rsort" data-k="joined" style="cursor:pointer">入社月</th><th>資料</th><th class="num">報酬</th><th>次のアクション</th><th style="width:46px;text-align:center">連絡</th>
   </tr></thead><tbody>
   ${rows.map(r=>{
     const p=project(r.pj), a=agency(r.ag), earn=refEarning(r);
@@ -3440,7 +3440,7 @@ function referralTable(rows, opt={}){
       <td><span class="tag" style="font-size:10.5px" title="${esc(p?p.name:r.pj)}">${esc(shortPjName(r.pj))}</span></td>
       <td>${ed?statusSelect(r.status,`data-act="edit-ref" data-id="${r.id}" data-f="status"`):statusBadge(r.status)}</td>
       ${showSession?`<td>${ed?`<input class="icell" style="font-family:var(--mono);font-size:12px;max-width:80px" value="${r.session==='—'?'':esc(r.session)}" placeholder="7/18" data-act="edit-ref" data-id="${r.id}" data-f="session">`:`<span class="mono cell-sub">${esc(r.session)}</span>`}</td>`:''}
-      <td><span class="mono cell-sub">${esc((r.created||'').slice(5)||'—')}</span></td>
+      <td style="white-space:nowrap"><span class="mono cell-sub">${esc((r.created||'').slice(5)||'—')}</span></td>
       <td>${ed
         ?`<input type="month" class="icell" style="font-family:var(--mono);font-size:12px;max-width:120px" value="${r.joined?esc(r.joined.slice(0,7)):''}" data-act="edit-ref" data-id="${r.id}" data-f="joinedMonth">`
         :(r.joined?`<span class="tag" style="background:var(--g-bg);color:var(--g);font-size:11px">${joinedM(r)}</span>`:'<span class="cell-sub">—</span>')}</td>
