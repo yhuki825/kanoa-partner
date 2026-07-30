@@ -453,7 +453,14 @@ select.icell.stsel{font-weight:600;border:1px solid var(--line-2);background:var
 .cand-add{width:24px;height:24px;border:1px solid var(--line-2);background:var(--surface);border-radius:7px;display:grid;place-items:center;color:var(--ink-soft);cursor:pointer}
 .cand-add:hover{border-color:var(--accent);color:var(--accent)}
 .cand-rail-list{flex:1;overflow-y:auto;padding:6px}
-.cand-item{display:flex;align-items:center;gap:9px;width:100%;padding:9px 9px;border:none;background:none;border-radius:9px;cursor:pointer;text-align:left;transition:background .12s;margin-bottom:1px}
+.cand-slot{position:relative;margin-bottom:1px}
+.cand-item{display:flex;align-items:center;gap:9px;width:100%;padding:9px 9px;border:none;background:none;border-radius:9px;cursor:pointer;text-align:left;transition:background .12s;margin-bottom:0}
+.cand-item.has-unread{padding-right:52px}
+/* スレッドごとの「未読に戻す」。ボタンの入れ子を避けるため、行に重ねて置く */
+.ci-unread{position:absolute;right:7px;top:50%;transform:translateY(-50%);border:1px solid var(--line-2);background:var(--surface);color:var(--muted);font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:6px;cursor:pointer;opacity:0;transition:opacity .12s,color .12s,border-color .12s}
+.cand-slot:hover .ci-unread{opacity:1}
+.ci-unread:hover{border-color:var(--accent);color:var(--accent)}
+@media (hover:none){ .ci-unread{opacity:1} }
 .cand-item:hover{background:var(--surface)}
 .cand-item.on{background:var(--accent-soft)}
 .cand-item .ci-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
@@ -1680,6 +1687,19 @@ function subUnread(ag, refId, viewer){
   const ent=unreadIndex().get((ag||'')+'|'+(refId||''));
   return ent?(viewer==='kanoa'?ent[0]:ent[1]):0;
 }
+/* 「未読に戻す」直後の自動既読を抑止する。スレッドを開いたままだと3秒ごとの
+   自動更新で即座に既読へ戻ってしまうため、別のスレッド／別画面へ移るまでは既読化しない。 */
+let _keepUnread=null;   // 'ag|refId'
+/* このスレッドに「未読に戻せる相手からの連絡」があるか */
+function canMarkUnread(ag, refId, viewer){
+  const incoming = viewer==='kanoa' ? 'agency' : 'kanoa';
+  return subThread(ag, refId).some(m=>m.from===incoming && !m.deleted);
+}
+/* 企業単位（全スレッド合計）で未読に戻せるか。戻せない企業にボタンを出さないため */
+function canMarkUnreadAg(ag){
+  const incoming = (typeof meRole==='function' && meRole()==='kanoa') ? 'agency' : 'kanoa';
+  return DB.messages.some(m=>m.ag===ag && m.from===incoming && !m.deleted);
+}
 function markReadSub(ag, refId, viewer){
   let changed=false;
   DB.messages.forEach(m=>{ if(m.ag===ag && (m.refId||null)===(refId||null)){ if(viewer==='kanoa'&&m.from==='agency'&&!m.read){m.read=true;changed=true;} if(viewer==='agency'&&m.from==='kanoa'&&!m.read){m.read=true;changed=true;} } });
@@ -2671,6 +2691,7 @@ function enterApp(){
   startAutoRefresh();
 }
 function go(view){
+  _keepUnread=null;   // 画面を移ったら「未読のまま保持」を解除
   S.view = view;
   try{ sessionStorage.setItem('kanoa_last_view', view); }catch(e){}
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('on', n.dataset.view===view));
@@ -3705,7 +3726,7 @@ function msgAgRow(a, pj){
     <div class="thread-av" style="background:${agColor(a.id)}">${esc(a.name.slice(0,1))}</div>
     <div class="thread-main"><div class="thread-name">${esc(a.name)}${un?'<span style="width:7px;height:7px;border-radius:50%;background:var(--accent);display:inline-block;margin-left:7px"></span>':''}</div>
       <div class="thread-last" style="${un?'color:var(--ink);font-weight:500':''}">${ctxLabel}${last?(last.from==='kanoa'?'自社: ':'')+esc(last.text):(pj?'この案件のやり取りはまだありません':'メッセージはまだありません')}</div></div>
-    <div class="thread-meta"><span class="thread-time">${last?esc(msgMDHM(last)):''}</span>${un?`<span class="unread-dot">${un}</span>`:`<button class="copy-btn" data-act="mark-unread" data-ag="${a.id}" style="padding:3px 7px">未読に</button>`}</div>
+    <div class="thread-meta"><span class="thread-time">${last?esc(msgMDHM(last)):''}</span>${un?`<span class="unread-dot">${un}</span>`:(canMarkUnreadAg(a.id)?`<button class="copy-btn" data-act="mark-unread" data-ag="${a.id}" style="padding:3px 7px">未読に</button>`:'')}</div>
   </div>`;
 }
 function msgCandRow(r){
@@ -3842,24 +3863,34 @@ function subThreadNav(ag, viewer, curRef){
       <button class="cand-add" data-act="new-subthread" data-ag="${ag}" title="候補者を追加"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
     </div>
     <div class="cand-rail-list">`;
+  // 各スレッドの「未読に戻す」ボタン（既読で、相手からの連絡があるときだけ出す）
+  const unreadBtn=(rid,label)=> (subUnread(ag, rid, viewer)===0 && canMarkUnread(ag, rid, viewer))
+    ? `<button class="ci-unread" data-act="mark-unread-sub" data-ag="${ag}" data-ref="${rid||''}" title="${esc(label)}を未読に戻す">未読に</button>`
+    : '';
   // 全体連絡
-  html+=`<button class="cand-item ${genActive?'on':''}" data-act="open-subthread" data-ag="${ag}" data-ref="">
-    <span class="ci-dot" style="background:var(--ink)"></span>
-    <span class="ci-main"><span class="ci-name">全体連絡</span><span class="ci-sub">案件に紐づかない連絡</span></span>
-    ${genUn?`<span class="ci-un">${genUn}</span>`:''}
-  </button>`;
+  const genBtn=unreadBtn(null,'全体連絡');
+  html+=`<div class="cand-slot">
+    <button class="cand-item ${genActive?'on':''} ${genBtn?'has-unread':''}" data-act="open-subthread" data-ag="${ag}" data-ref="">
+      <span class="ci-dot" style="background:var(--ink)"></span>
+      <span class="ci-main"><span class="ci-name">全体連絡</span><span class="ci-sub">案件に紐づかない連絡</span></span>
+      ${genUn?`<span class="ci-un">${genUn}</span>`:''}
+    </button>${genBtn}
+  </div>`;
   // 送客スレッド（候補者ごと・縦並び）
   items.forEach(({rid,r,un})=>{
     const on=(curRef||null)===rid;
     const stColor=STATUS[r.status]?`var(--${STATUS[r.status].cls==='joined'?'g':STATUS[r.status].cls==='rejected'?'r':STATUS[r.status].cls==='offer'?'v':STATUS[r.status].cls==='interview'?'a':STATUS[r.status].cls==='screening'?'b':'gray'})`:'var(--gray)';
     const ds=docStat(r);
     const needDocs = (r.status==='entry'||r.status==='screening') && !(ds.rireki&&ds.shoku);
-    html+=`<button class="cand-item ${on?'on':''}" data-act="open-subthread" data-ag="${ag}" data-ref="${rid}">
-      <span class="ci-dot" style="background:${stColor}"></span>
-      <span class="ci-main"><span class="ci-name">${esc(r.name)}${un?`<span style="display:inline-block;margin-left:6px;padding:0px 6px;border-radius:999px;background:var(--r);color:#fff;font-size:9px;font-weight:700;vertical-align:1px">New</span>`:''}</span><span class="ci-sub">${esc(shortPjName(r.pj))} · ${esc(statusDef(r.status).label)}</span></span>
-      ${needDocs?`<span class="ci-flag" title="書類が未提出"></span>`:''}
-      ${un?`<span class="ci-un">${un}</span>`:''}
-    </button>`;
+    const uBtn=unreadBtn(rid, r.name);
+    html+=`<div class="cand-slot">
+      <button class="cand-item ${on?'on':''} ${uBtn?'has-unread':''}" data-act="open-subthread" data-ag="${ag}" data-ref="${rid}">
+        <span class="ci-dot" style="background:${stColor}"></span>
+        <span class="ci-main"><span class="ci-name">${esc(r.name)}${un?`<span style="display:inline-block;margin-left:6px;padding:0px 6px;border-radius:999px;background:var(--r);color:#fff;font-size:9px;font-weight:700;vertical-align:1px">New</span>`:''}</span><span class="ci-sub">${esc(shortPjName(r.pj))} · ${esc(statusDef(r.status).label)}</span></span>
+        ${needDocs?`<span class="ci-flag" title="書類が未提出"></span>`:''}
+        ${un?`<span class="ci-un">${un}</span>`:''}
+      </button>${uBtn}
+    </div>`;
   });
   if(!items.length){ html+=`<div class="cell-sub" style="padding:10px 12px;line-height:1.5">${pjF?'この案件の送客スレッドはまだありません。':'送客スレッドはまだありません。'}<br>「＋」から候補者を追加できます。</div>`; }
   html+=`</div></aside>`;
@@ -4034,7 +4065,10 @@ function chatBodyHTML(ag, curRef, viewer){
 function renderConversation(ag, viewer){
   // 現在のサブスレッド（S.threadRef）。未指定なら全体連絡
   const curRef = S.threadRef || null;
-  markReadSub(ag, curRef, viewer); save(); updateNavCounts();
+  const _tk=(ag||'')+'|'+(curRef||'');
+  if(_keepUnread && _keepUnread!==_tk) _keepUnread=null;   // 別スレッドへ移ったら抑止を解除
+  if(_keepUnread!==_tk){ markReadSub(ag, curRef, viewer); }
+  save(); updateNavCounts();
   const a=agency(ag);
   setHeader('連絡', viewer==='kanoa'?(a?a.name:ag):'KANOA 事務局', '');
   const ms=subThread(ag, curRef);
@@ -5856,7 +5890,26 @@ document.addEventListener('click', e=>{
     case 'open-cand-thread': S.threadAg=t.dataset.ag; S.threadRef=t.dataset.ref; S.threadPrefill=null; S.replyTo=null; S.editMsg=null; S.picker=false; S.draft=null; go('messages'); break;
     case 'open-general-thread': S.threadAg=(S.role==='kanoa'?S.threadAg:null); S.threadRef=null; S.replyTo=null; S.editMsg=null; S.picker=false; S.draft=null; go('messages'); break;
     case 'mark-all-read': DB.messages.forEach(m=>{ if(m.from==='agency') m.read=true; }); save(); updateNavCounts(); viewMessages(); toast('すべて既読にしました'); break;
-    case 'mark-unread': { const ms=thread(t.dataset.ag).filter(m=>m.from==='agency'); if(ms.length) ms[ms.length-1].read=false; save(); updateNavCounts(); viewMessages(); break; }
+    case 'mark-unread': { const _in=meRole()==='kanoa'?'agency':'kanoa';
+      const ms=thread(t.dataset.ag).filter(m=>m.from===_in && !m.deleted);
+      if(!ms.length){ toast('未読に戻せる相手からの連絡がありません'); break; }
+      ms[ms.length-1].read=false; invalidateUnread(); save(); updateNavCounts(); viewMessages(); break; }
+    /* 送客スレッド（求職者）単位で未読に戻す。data-ref が空なら全体連絡 */
+    case 'mark-unread-sub': {
+      const ag=t.dataset.ag, rid=t.dataset.ref||null, viewer=meRole();
+      const _in=viewer==='kanoa'?'agency':'kanoa';
+      const ms=subThread(ag, rid).filter(m=>m.from===_in && !m.deleted);
+      if(!ms.length){ toast('未読に戻せる相手からの連絡がありません'); break; }
+      ms[ms.length-1].read=false; invalidateUnread();
+      // 今開いているスレッド自身を未読に戻したときは、自動更新で即座に既読へ戻らないよう抑止する
+      const key=(ag||'')+'|'+(rid||'');
+      _keepUnread = ((curThreadAg()||'')+'|'+(S.threadRef||'')===key) ? key : null;
+      save(); updateNavCounts();
+      renderConversation(curThreadAg(), viewer);
+      const nm = rid ? ((DB.referrals.find(x=>x.id===rid)||{}).name||'このスレッド') : '全体連絡';
+      toast(`${nm} を未読に戻しました`);
+      break;
+    }
     case 'jump-unread': { const a=DB.agencies.find(a=>unreadKanoaBy(a.id)>0); if(a){ S.threadAg=a.id; S.threadRef=null; go('messages'); } break; }
     case 'tmpl': { const ta=document.getElementById('msgInput'); if(ta){ ta.value=(ta.value?ta.value+'\n':'')+MSG_TEMPLATES[+t.dataset.i].text; } S.picker=false; rerenderChat(); break; }
     case 'mention-pick': { const ta=document.getElementById('msgInput'); let v=ta?ta.value:''; const idx=Math.max(v.lastIndexOf('@'), v.lastIndexOf('＠')); if(idx>=0) v=v.slice(0,idx); if(v && !v.endsWith(' ') && !v.endsWith('\n')) v+=' '; v=v+'@'+t.dataset.name+' '; if(ta) ta.value=v; S.picker=false; rerenderChat(); break; }
