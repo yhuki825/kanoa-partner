@@ -3412,12 +3412,14 @@ function renderRefTable(){
   const cEl=document.getElementById('rCount'); if(cEl) cEl.textContent=`${rows.length} 名${rSel.size?` · ${rSel.size}件選択`:''}`;
   const rr=document.getElementById('rReset'); if(rr) rr.innerHTML = anyRFilter()?`<button class="btn btn-ghost btn-sm" data-act="rfilter-reset-all" style="padding:4px 10px;font-size:11.5px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>抽出を解除</button>`:'';
   const fp=document.getElementById('fpCount'); if(fp) fp.textContent=`該当 ${rows.length} 名`;
-  wrap.innerHTML = referralTable(rows, {showAgency:true, editable:true, select:true});
+  // 送客管理では「選考会」列を出さない（選考会日は候補者カードから編集する）
+  wrap.innerHTML = referralTable(rows, {showAgency:true, editable:true, select:true, session:false});
   renderRefBulk();
 }
 function referralTable(rows, opt={}){
   if(!rows.length) return emptyState('送客がありません','条件を変えるか、パートナーからの送客を待ちましょう');
   const ed = opt.editable, sel = opt.select;
+  const showSession = opt.session !== false;   // 「選考会」列を出すか（送客管理では出さない）
   const allSel = sel && rows.length>0 && rows.every(r=>rSel.has(r.id));
   return `<table class="tbl"><thead><tr>
     ${sel?`<th style="width:34px"><input type="checkbox" class="rsel-cb" data-act="rsel-all" ${allSel?'checked':''}></th>`:''}
@@ -3426,7 +3428,7 @@ function referralTable(rows, opt={}){
     ${opt.showAgency?'<th data-act="rsort" data-k="ag" style="cursor:pointer">パートナー</th>':''}
     <th data-act="rsort" data-k="pj" style="cursor:pointer">案件</th>
     <th data-act="rsort" data-k="status" style="cursor:pointer">ステータス</th>
-    <th>選考会</th><th data-act="rsort" data-k="created" style="cursor:pointer">送客日</th><th data-act="rsort" data-k="joined" style="cursor:pointer">入社月</th><th>資料</th><th class="num">報酬</th><th>次のアクション</th><th style="width:46px;text-align:center">連絡</th>
+    ${showSession?'<th>選考会</th>':''}<th data-act="rsort" data-k="created" style="cursor:pointer">送客日</th><th data-act="rsort" data-k="joined" style="cursor:pointer">入社月</th><th>資料</th><th class="num">報酬</th><th>次のアクション</th><th style="width:46px;text-align:center">連絡</th>
   </tr></thead><tbody>
   ${rows.map(r=>{
     const p=project(r.pj), a=agency(r.ag), earn=refEarning(r);
@@ -3437,7 +3439,7 @@ function referralTable(rows, opt={}){
       ${opt.showAgency?`<td>${esc(a?a.name:r.ag)}</td>`:''}
       <td><span class="tag" style="font-size:10.5px" title="${esc(p?p.name:r.pj)}">${esc(shortPjName(r.pj))}</span></td>
       <td>${ed?statusSelect(r.status,`data-act="edit-ref" data-id="${r.id}" data-f="status"`):statusBadge(r.status)}</td>
-      <td>${ed?`<input class="icell" style="font-family:var(--mono);font-size:12px;max-width:80px" value="${r.session==='—'?'':esc(r.session)}" placeholder="7/18" data-act="edit-ref" data-id="${r.id}" data-f="session">`:`<span class="mono cell-sub">${esc(r.session)}</span>`}</td>
+      ${showSession?`<td>${ed?`<input class="icell" style="font-family:var(--mono);font-size:12px;max-width:80px" value="${r.session==='—'?'':esc(r.session)}" placeholder="7/18" data-act="edit-ref" data-id="${r.id}" data-f="session">`:`<span class="mono cell-sub">${esc(r.session)}</span>`}</td>`:''}
       <td><span class="mono cell-sub">${esc((r.created||'').slice(5)||'—')}</span></td>
       <td>${ed
         ?`<input type="month" class="icell" style="font-family:var(--mono);font-size:12px;max-width:120px" value="${r.joined?esc(r.joined.slice(0,7)):''}" data-act="edit-ref" data-id="${r.id}" data-f="joinedMonth">`
