@@ -722,10 +722,10 @@ select.icell.stsel{font-weight:600;border:1px solid var(--line-2);background:var
 .doc-item .doc-meta{flex:1 1 100px}
 .doc-icon{min-width:42px;height:24px;display:grid;place-items:center;flex-shrink:0}
 .file-badge{font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.3px;padding:3px 6px;border-radius:5px;line-height:1;white-space:nowrap;max-width:54px;overflow:hidden;text-overflow:ellipsis}
-/* 1fr は min-content 未満に縮まないため、中身（ファイル名や説明文）の幅で
-   グリッドが押し広げられ、ドロワー全体が横スクロールしていた。minmax(0,1fr) で縮められるようにする。 */
-.doc-slots{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-@media(max-width:560px){.doc-slots{grid-template-columns:1fr}}
+/* 書類スロットは1列ずつ縦に積む。
+   1fr は min-content 未満に縮まないため、ファイル名や説明文の幅でドロワーが
+   横スクロールしてしまう。minmax(0,1fr) にして縮められるようにしている。 */
+.doc-slots{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}
 
 /* ══════════ モバイル最適化（スマホ実機 560px以下）━━ No25対応 ══════════ */
 @media(max-width:560px){
