@@ -3877,17 +3877,26 @@ function subThreadNav(ag, viewer, curRef){
   const unreadBtn=(rid,label)=> (subUnread(ag, rid, viewer)===0 && canMarkUnread(ag, rid, viewer))
     ? `<button class="ci-unread" data-act="mark-unread-sub" data-ag="${ag}" data-ref="${rid||''}" title="${esc(label)}を未読に戻す">未読に</button>`
     : '';
+  /* 名前の下に出す1行。最新のメッセージを優先し、まだやり取りが無ければ案件名・ステータスを出す。
+     last は subThread を時刻順に並べた最後＝最新（items 生成時に取得済み）。 */
+  const subLine = (last, fallback) => {
+    if(!last) return esc(fallback);
+    const body = last.deleted ? '送信を取り消しました' : (last.text||'').replace(/\s+/g,' ');
+    const mine = last.from===viewer ? '自社: ' : '';
+    return esc(mine + body.slice(0, 40));
+  };
   // 全体連絡
+  const genLast=(function(){ const ms=subThread(ag, null); return ms[ms.length-1]||null; })();
   const genBtn=unreadBtn(null,'全体連絡');
   html+=`<div class="cand-slot">
     <button class="cand-item ${genActive?'on':''} ${genBtn?'has-unread':''}" data-act="open-subthread" data-ag="${ag}" data-ref="">
       <span class="ci-dot" style="background:var(--ink)"></span>
-      <span class="ci-main"><span class="ci-name">全体連絡</span><span class="ci-sub">案件に紐づかない連絡</span></span>
+      <span class="ci-main"><span class="ci-name">全体連絡</span><span class="ci-sub" title="案件に紐づかない連絡">${subLine(genLast, '案件に紐づかない連絡')}</span></span>
       ${genUn?`<span class="ci-un">${genUn}</span>`:''}
     </button>${genBtn}
   </div>`;
   // 送客スレッド（候補者ごと・縦並び）
-  items.forEach(({rid,r,un})=>{
+  items.forEach(({rid,r,un,last})=>{
     const on=(curRef||null)===rid;
     const stColor=STATUS[r.status]?`var(--${STATUS[r.status].cls==='joined'?'g':STATUS[r.status].cls==='rejected'?'r':STATUS[r.status].cls==='offer'?'v':STATUS[r.status].cls==='interview'?'a':STATUS[r.status].cls==='screening'?'b':'gray'})`:'var(--gray)';
     const ds=docStat(r);
@@ -3896,7 +3905,7 @@ function subThreadNav(ag, viewer, curRef){
     html+=`<div class="cand-slot">
       <button class="cand-item ${on?'on':''} ${uBtn?'has-unread':''}" data-act="open-subthread" data-ag="${ag}" data-ref="${rid}">
         <span class="ci-dot" style="background:${stColor}"></span>
-        <span class="ci-main"><span class="ci-name">${esc(r.name)}${un?`<span style="display:inline-block;margin-left:6px;padding:0px 6px;border-radius:999px;background:var(--r);color:#fff;font-size:9px;font-weight:700;vertical-align:1px">New</span>`:''}</span><span class="ci-sub">${esc(shortPjName(r.pj))} · ${esc(statusDef(r.status).label)}</span></span>
+        <span class="ci-main"><span class="ci-name">${esc(r.name)}${un?`<span style="display:inline-block;margin-left:6px;padding:0px 6px;border-radius:999px;background:var(--r);color:#fff;font-size:9px;font-weight:700;vertical-align:1px">New</span>`:''}</span><span class="ci-sub" title="${esc(shortPjName(r.pj))} · ${esc(statusDef(r.status).label)}">${subLine(last, shortPjName(r.pj)+' · '+statusDef(r.status).label)}</span></span>
         ${needDocs?`<span class="ci-flag" title="書類が未提出"></span>`:''}
         ${un?`<span class="ci-un">${un}</span>`:''}
       </button>${uBtn}
