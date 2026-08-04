@@ -3877,8 +3877,10 @@ function subThreadNav(ag, viewer, curRef){
   const unreadBtn=(rid,label)=> (subUnread(ag, rid, viewer)===0 && canMarkUnread(ag, rid, viewer))
     ? `<button class="ci-unread" data-act="mark-unread-sub" data-ag="${ag}" data-ref="${rid||''}" title="${esc(label)}を未読に戻す">未読に</button>`
     : '';
-  /* 名前の下に出す1行。最新のメッセージを優先し、まだやり取りが無ければ案件名・ステータスを出す。
-     last は subThread を時刻順に並べた最後＝最新（items 生成時に取得済み）。 */
+  /* 名前の下に出す1行は、そのスレッドの最新メッセージの冒頭。
+     last は subThread を時刻順に並べた最後＝最新（items 生成時に取得済み）。
+     まだやり取りが無いときだけ fallback の文言を出す。
+     案件名とステータスは title 属性（ツールチップ）に退避している。 */
   const subLine = (last, fallback) => {
     if(!last) return esc(fallback);
     const body = last.deleted ? '送信を取り消しました' : (last.text||'').replace(/\s+/g,' ');
@@ -3905,7 +3907,7 @@ function subThreadNav(ag, viewer, curRef){
     html+=`<div class="cand-slot">
       <button class="cand-item ${on?'on':''} ${uBtn?'has-unread':''}" data-act="open-subthread" data-ag="${ag}" data-ref="${rid}">
         <span class="ci-dot" style="background:${stColor}"></span>
-        <span class="ci-main"><span class="ci-name">${esc(r.name)}${un?`<span style="display:inline-block;margin-left:6px;padding:0px 6px;border-radius:999px;background:var(--r);color:#fff;font-size:9px;font-weight:700;vertical-align:1px">New</span>`:''}</span><span class="ci-sub" title="${esc(shortPjName(r.pj))} · ${esc(statusDef(r.status).label)}">${subLine(last, shortPjName(r.pj)+' · '+statusDef(r.status).label)}</span></span>
+        <span class="ci-main"><span class="ci-name">${esc(r.name)}${un?`<span style="display:inline-block;margin-left:6px;padding:0px 6px;border-radius:999px;background:var(--r);color:#fff;font-size:9px;font-weight:700;vertical-align:1px">New</span>`:''}</span><span class="ci-sub" title="${esc(shortPjName(r.pj))} · ${esc(statusDef(r.status).label)}">${subLine(last, 'メッセージはまだありません')}</span></span>
         ${needDocs?`<span class="ci-flag" title="書類が未提出"></span>`:''}
         ${un?`<span class="ci-un">${un}</span>`:''}
       </button>${uBtn}
