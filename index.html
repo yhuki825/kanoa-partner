@@ -2011,9 +2011,10 @@ function docGuideLink(style){
   </div>`;
 }
 function openDocGuide(backId){
-  // 進捗確認ページの編集モーダルから開いた場合は、入力中の内容を退避して戻れるようにする
-  _tkEditDraft = null;
-  if(backId){
+  // 進捗確認ページの編集モーダル／送客モーダルから開いた場合は、入力中の内容を退避して戻れるようにする
+  _tkEditDraft = null; _refFormDraft = null;
+  if(backId==='referral'){ _refFormDraft = stashReferralForm(); }
+  else if(backId){
     const g=id=>((document.getElementById(id)||{}).value);
     if(g('tkeName')!==undefined){
       _tkEditDraft={ id:backId, name:g('tkeName'), kana:g('tkeKana'), phone:g('tkePhone'),
@@ -2048,12 +2049,37 @@ function openDocGuide(backId){
       </div>
     </div>
     <div class="modal-actions">${
-      (_tkEditDraft && _tkEditDraft.id)
-        ? `<button class="btn btn-primary" data-act="doc-guide-back">編集にもどる</button>`
-        : `<button class="btn btn-primary" data-act="closemodal">閉じる</button>`
+      _refFormDraft
+        ? `<button class="btn btn-primary" data-act="doc-guide-back-ref">送客の入力にもどる</button>`
+        : (_tkEditDraft && _tkEditDraft.id)
+          ? `<button class="btn btn-primary" data-act="doc-guide-back">編集にもどる</button>`
+          : `<button class="btn btn-primary" data-act="closemodal">閉じる</button>`
     }</div>`).val);
 }
 let _tkEditDraft = null;   // 雛形モーダルを開く直前の入力内容（戻ったときに復元する）
+
+/* ── 送客モーダルから雛形を見に行っても、入力を失わないようにする ──
+   モーダルは1つの器を共有しているため、雛形を開くと送客の入力欄は消える。
+   そこで開く直前に値と選択済みファイルを退避し、「もどる」で元に戻す。
+   ファイルは DataTransfer で input へ入れ直せる。 */
+let _refFormDraft = null;
+const REF_FORM_FILE_IDS = ['mDocResume','mDocCareer','mDocGensen','mDocKyuyo','mDocShoyo'];
+const REF_FORM_TEXT_IDS = ['mProj','mAg','mName','mKana','mPhone','mEmail','mArea','mAddress','mSrc'];
+function stashReferralForm(){
+  if(!document.getElementById('mName')) return null;   // 送客モーダルが開いていない
+  const d={ values:{}, files:{} };
+  REF_FORM_TEXT_IDS.forEach(id=>{ const el=document.getElementById(id); if(el) d.values[id]=el.value; });
+  REF_FORM_FILE_IDS.forEach(id=>{ const el=document.getElementById(id); if(el && el.files && el.files[0]) d.files[id]=el.files[0]; });
+  return d;
+}
+function restoreReferralForm(d){
+  if(!d) return;
+  REF_FORM_TEXT_IDS.forEach(id=>{ const el=document.getElementById(id); if(el && d.values[id]!=null) el.value=d.values[id]; });
+  Object.keys(d.files||{}).forEach(id=>{
+    const el=document.getElementById(id); if(!el) return;
+    try{ const dt=new DataTransfer(); dt.items.add(d.files[id]); el.files=dt.files; }catch(e){}
+  });
+}
 
 /* ── 希望エリア：都道府県（選択制）──────────────────────────────
    報酬計算(baseSalaryFor)は「東京」「大阪」等を includes で判定するため、
@@ -5373,6 +5399,12 @@ function modalNewReferral(pjId, agId){
         </div>`).join('')}
       </div>
       <div class="cell-sub" style="font-size:10.5px;margin-top:6px">各25MBまで。すべて任意で、後から追加・変更もできます。</div>
+      <div style="font-size:11.5px;margin-top:8px">
+        <a href="#" data-act="doc-guide" data-back="referral" style="color:var(--accent);text-decoration:none;font-weight:600">
+          📄 履歴書・職務経歴書の雛形と記入見本
+        </a>
+        <span class="cell-sub" style="font-size:10.5px;margin-left:6px">入力内容は保持されます</span>
+      </div>
     </div>
     <div class="modal-grid">
       ${projSel}
@@ -5940,6 +5972,11 @@ document.addEventListener('click', e=>{
     case 'tk-edit': openTrackerEdit(t.dataset.id); break;
     case 'doc-guide': e.preventDefault(); openDocGuide(t.dataset.back||''); break;
     case 'doc-guide-back': { const d=_tkEditDraft; _tkEditDraft=null; if(d&&d.id) openTrackerEdit(d.id, d); else closeModal(); break; }
+    case 'doc-guide-back-ref': { const d=_refFormDraft; _refFormDraft=null;
+      if(!d){ closeModal(); break; }
+      modalNewReferral(d.values.mProj||null, d.values.mAg||null);
+      restoreReferralForm(d);
+      break; }
     case 'tk-edit-save': doTrackerEditSave(t.dataset.id); break;
     case 'tk-doc-del': doTrackerDelDoc(t.dataset.id, t.dataset.doc); break;
     case 'tracker-tab': _tkTab=t.dataset.tab; renderTrackerList(); break;
