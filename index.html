@@ -449,8 +449,13 @@ select.icell.stsel{font-weight:600;border:1px solid var(--line-2);background:var
 .thread-pj-tag{font-size:9.5px;font-weight:600;font-family:var(--mono);color:var(--accent-ink);background:var(--accent-soft);padding:1px 6px;border-radius:5px;margin-right:5px}
 .chat{display:flex;flex-direction:column;height:100%;min-height:0}
 /* 会話：左に縦の候補者レール＋右にチャット */
-.conv{display:grid;grid-template-columns:200px minmax(0,1fr);height:calc(100dvh - 88px);min-height:340px}
-.cand-rail{display:flex;flex-direction:column;border-right:1px solid var(--line);background:var(--surface-2);min-height:0}
+/* 送客スレッド一覧の幅は --rail-w で可変。利用者がドラッグで変えた値は端末に保存する */
+.conv{display:grid;grid-template-columns:var(--rail-w,260px) minmax(0,1fr);height:calc(100dvh - 88px);min-height:340px}
+.cand-rail{position:relative;display:flex;flex-direction:column;border-right:1px solid var(--line);background:var(--surface-2);min-height:0}
+/* 幅を変えるつまみ。境界に重ねて置く（列を増やすとレイアウトが崩れるため） */
+.rail-resizer{position:absolute;top:0;right:-3px;width:7px;height:100%;cursor:col-resize;z-index:6;background:transparent;border:none;padding:0}
+.rail-resizer::before{content:"";position:absolute;top:0;left:3px;width:1px;height:100%;background:var(--accent);opacity:0;transition:opacity .12s}
+.rail-resizer:hover::before,.rail-resizer.on::before{opacity:1}
 .cand-rail-head{display:flex;align-items:center;justify-content:space-between;padding:12px 12px 9px;font-size:11px;font-weight:700;color:var(--muted);font-family:var(--mono);letter-spacing:.04em;flex-shrink:0;border-bottom:1px solid var(--line)}
 .cand-rail-head b{color:var(--ink);font-family:var(--display)}
 .cand-add{width:24px;height:24px;border:1px solid var(--line-2);background:var(--surface);border-radius:7px;display:grid;place-items:center;color:var(--ink-soft);cursor:pointer}
@@ -476,6 +481,7 @@ select.icell.stsel{font-weight:600;border:1px solid var(--line-2);background:var
 @media(max-width:720px){
   .conv{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr)}
   .cand-rail{border-right:none;border-bottom:1px solid var(--line);max-height:168px}
+  .rail-resizer{display:none}   /* 縦積みになるので幅調整は無効 */
 }
 /* 要対応パネル（パートナートップ） */
 .todo-panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--sh);margin-bottom:18px;overflow:hidden}
@@ -2837,6 +2843,8 @@ function _silentRerenderInner(){
   const cScroll = real.scrollTop;
   const chatBody = real.querySelector('.chat-body');
   const chatScroll = chatBody ? chatBody.scrollTop : null;
+  const railEl = real.querySelector('.cand-rail-list');
+  const railScroll = railEl ? railEl.scrollTop : null;
   const chatAtBottom = chatBody ? (chatBody.scrollHeight - chatBody.scrollTop - chatBody.clientHeight < 40) : false;
   const ae = document.activeElement;
   const focusId = ae && ae.id ? ae.id : null;
@@ -2882,6 +2890,8 @@ function _silentRerenderInner(){
   real.scrollTop = cScroll;
   const newChat = real.querySelector('.chat-body');
   if(newChat && chatScroll!=null){ newChat.scrollTop = chatAtBottom ? newChat.scrollHeight : chatScroll; }
+  const newRail = real.querySelector('.cand-rail-list');
+  if(newRail && railScroll!=null) newRail.scrollTop = railScroll;
   if(focusId){ const el=document.getElementById(focusId); if(el){ try{ el.focus({preventScroll:true}); if(selStart!=null && 'setSelectionRange' in el) el.setSelectionRange(selStart, selEnd); }catch(e){} } }
 }
 
@@ -3912,6 +3922,48 @@ function modalNewSubthread(ag){
   const ss=document.getElementById('subSearch'); if(ss) ss.focus();
 }
 /* 送客スレッドのサブナビを描画 */
+/* ── 送客スレッド一覧の幅（利用者がドラッグで調整でき、端末に保存される）── */
+const RAIL_W_KEY='kanoa_rail_w', RAIL_W_MIN=180, RAIL_W_MAX=460, RAIL_W_DEFAULT=260;
+function railWidth(){
+  let v=NaN; try{ v=parseInt(localStorage.getItem(RAIL_W_KEY)||'',10); }catch(e){}
+  if(!isFinite(v)) v=RAIL_W_DEFAULT;
+  return Math.min(RAIL_W_MAX, Math.max(RAIL_W_MIN, v));
+}
+function setRailWidth(px, persist){
+  const v=Math.min(RAIL_W_MAX, Math.max(RAIL_W_MIN, Math.round(px)));
+  const conv=document.querySelector('.conv');
+  if(conv) conv.style.setProperty('--rail-w', v+'px');
+  if(persist!==false){ try{ localStorage.setItem(RAIL_W_KEY, String(v)); }catch(e){} }
+  return v;
+}
+let _railDrag=null;
+document.addEventListener('pointerdown', e=>{
+  const h=e.target && e.target.closest && e.target.closest('.rail-resizer'); if(!h) return;
+  const rail=h.closest('.cand-rail'); if(!rail) return;
+  e.preventDefault();
+  _railDrag={ x:e.clientX, w:rail.getBoundingClientRect().width };
+  h.classList.add('on');
+  document.body.style.userSelect='none'; document.body.style.cursor='col-resize';
+  try{ h.setPointerCapture(e.pointerId); }catch(err){}
+});
+document.addEventListener('pointermove', e=>{
+  if(!_railDrag) return;
+  setRailWidth(_railDrag.w + (e.clientX - _railDrag.x));
+});
+function _endRailDrag(){
+  if(!_railDrag) return;
+  _railDrag=null;
+  document.querySelectorAll('.rail-resizer.on').forEach(x=>x.classList.remove('on'));
+  document.body.style.userSelect=''; document.body.style.cursor='';
+}
+document.addEventListener('pointerup', _endRailDrag);
+document.addEventListener('pointercancel', _endRailDrag);
+/* つまみをダブルクリックで既定の幅に戻す */
+document.addEventListener('dblclick', e=>{
+  const h=e.target && e.target.closest && e.target.closest('.rail-resizer'); if(!h) return;
+  setRailWidth(RAIL_W_DEFAULT); toast('一覧の幅を既定に戻しました');
+});
+
 function subThreadNav(ag, viewer, curRef){
   let refIds=subThreadKeys(ag);
   // 案件フィルタが有効なら、その案件の候補者だけに絞る（KANOAのみ）
@@ -3975,7 +4027,7 @@ function subThreadNav(ag, viewer, curRef){
     </div>`;
   });
   if(!items.length){ html+=`<div class="cell-sub" style="padding:10px 12px;line-height:1.5">${pjF?'この案件の送客スレッドはまだありません。':'送客スレッドはまだありません。'}<br>「＋」から候補者を追加できます。</div>`; }
-  html+=`</div></aside>`;
+  html+=`</div><div class="rail-resizer" title="ドラッグで幅を調整（ダブルクリックで既定に戻す）"></div></aside>`;
   return html;
 }
 /* コンテキストヘッダー（誰の/どの案件か常時表示） */
@@ -4157,13 +4209,16 @@ function renderConversation(ag, viewer){
   const pinned=ms.filter(m=>m.pinned && !m.deleted);
   const body=chatBodyHTML(ag, curRef, viewer);
   const c=document.getElementById('content');
+  // 一覧のスクロール位置を控えておく。renderConversation は .conv を丸ごと作り直すため、
+  // 何もしないと下の方のスレッドを選ぶたびに一覧が先頭へ戻ってしまう。
+  const _railPrev=(function(){ const el=c.querySelector('.cand-rail-list'); return el?el.scrollTop:null; })();
   c.style.padding='0';
   const replyMsg = S.replyTo?ms.find(x=>x.id===S.replyTo):null;
   const editing = S.editMsg?ms.find(x=>x.id===S.editMsg):null;
   const composerPlaceholder = (curRef
     ? `「${esc((DB.referrals.find(x=>x.id===curRef)||{}).name||'')}」についてのメッセージ`
     : 'メッセージを入力（改行OK / 送信ボタン または ⌘Enter）');
-  c.innerHTML=`<div class="conv">
+  c.innerHTML=`<div class="conv" style="--rail-w:${railWidth()}px">
     ${subThreadNav(ag, viewer, curRef)}
     <div class="chat">
     <div class="chat-head">
@@ -4190,6 +4245,8 @@ function renderConversation(ag, viewer){
     </div>
   </div>`;
   const cb=document.getElementById('chatBody'); if(cb) cb.scrollTop=cb.scrollHeight;
+  // 一覧のスクロール位置を戻す（選んだスレッドが画面外へ飛ばないように）
+  if(_railPrev!=null){ const rl=c.querySelector('.cand-rail-list'); if(rl) rl.scrollTop=_railPrev; }
   const ta=document.getElementById('msgInput'); if(ta){
     if(editing){ ta.value=editing.text||''; }
     else if(S.threadPrefill){ ta.value=S.threadPrefill; S.threadPrefill=null; }
