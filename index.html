@@ -1289,7 +1289,7 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
       // 送客済みは既存の書類と同じ置き場所に揃える（一次パートナー側の閲覧と互換）
       const path = (kind==='referral') ? `${id}/${did}${ext}` : `intake/${id}/${did}${ext}`;
       const up=await sb.storage.from('candidate-docs').upload(path, file, {contentType:file.type||'application/octet-stream', upsert:false});
-      if(up.error) return {error:'ファイルのアップロードに失敗しました'};
+      if(up.error) return {error:'ファイルの保存に失敗しました：'+(up.error.message||up.error)};
       const { error } = await sb.rpc('tracker_add_doc', {
         p_token:token, p_pw:pw, p_kind:kind, p_id:id,
         p_doc_id:did, p_doc_name:file.name, p_doc_kind:docKind,
@@ -1313,7 +1313,12 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
       id:d.id, referral_id:refId, name:d.name, kind:d.kind, size:d.size||0, mime:d.type||'', storage_path:d.path
     }));
     if(!rows.length) return;
-    try{ await sb.from('documents').insert(rows); }catch(e){ console.warn('attachDocs', e&&e.message); }
+    // supabase-js は例外を投げず {error} を返す。try/catch だけでは失敗を取りこぼし、
+    // 承認した送客から書類が黙って消えていた。呼び出し元へ理由を返す。
+    try{
+      const ins=await sb.from('documents').insert(rows);
+      if(ins.error){ console.warn('attachDocs', ins.error.message); return {error:ins.error.message}; }
+    }catch(e){ console.warn('attachDocs', e&&e.message); return {error:(e&&e.message)||'不明なエラー'}; }
   }
   /* 紹介者が0人でも会社名を表示できるよう、会社名だけを取得する */  /* フォーム用トークン(?sub=)から「どの一次パートナーの、どの二次パートナーか」を引く。
      未ログインでも使える。これにより貴社名の入力が不要になり、表記ゆれが原理的に起きない。 */
@@ -1559,7 +1564,14 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     const path=`${refId}/${id}${ext}`;
     const k=kind||inferKind(file.name);
     const up=await sb.storage.from('candidate-docs').upload(path,file,{contentType:file.type||'application/octet-stream',upsert:false}); if(up.error) throw up.error;
-    await sb.from('documents').insert({ id, referral_id:refId, name:file.name, kind:k, size:file.size, mime:file.type, storage_path:path, uploaded_by:meId() });
+    // ★documents への登録まで成功して初めて「アップロードできた」。
+    //   fromRef は docs:[] で読み込み、書類は documents テーブルだけが正本なので、
+    //   ここを見ないと「アップロードしました」と出たのに再読み込みで消える（実体だけStorageに残る）。
+    const ins=await sb.from('documents').insert({ id, referral_id:refId, name:file.name, kind:k, size:file.size, mime:file.type, storage_path:path, uploaded_by:meId() });
+    if(ins.error){
+      try{ await sb.storage.from('candidate-docs').remove([path]); }catch(e){}   // 迷子のファイルを残さない
+      throw ins.error;
+    }
     return { id, name:file.name, size:file.size, type:file.type, kind:k, uploaded:nowTS(), path };
   }
   async function docUrl(path){ const {data}=await sb.storage.from('candidate-docs').createSignedUrl(path,300); return data&&data.signedUrl; }
@@ -1636,7 +1648,7 @@ const _TABLE_LABEL = { tasks:'タスク', messages:'連絡', referrals:'送客',
 const _syncFailAt = Object.create(null);
 /* 保存失敗は2.2秒で消えるトーストでは読めない（理由が長く、原因の切り分けに必要なため）。
    閉じるまで残る帯で出し、理由をそのままコピーできるようにする。 */
-function showSyncErrorBar(label, msg, table){
+function showSyncErrorBar(label, msg, table, subText, headText){
   let bar = document.getElementById('syncErrBar');
   if(!bar){
     bar = document.createElement('div');
@@ -1653,10 +1665,10 @@ function showSyncErrorBar(label, msg, table){
   body.style.cssText = 'flex:1;min-width:0';
   const head = document.createElement('div');
   head.style.cssText = 'font-weight:700;margin-bottom:3px';
-  head.textContent = label + 'の保存に失敗しました';
+  head.textContent = headText || (label + 'の保存に失敗しました');
   const sub = document.createElement('div');
   sub.style.cssText = 'opacity:.85;margin-bottom:6px';
-  sub.textContent = '画面の変更はまだ保存されていません。下の理由をコピーして開発担当へ伝えてください。';
+  sub.textContent = subText || '画面の変更はまだ保存されていません。下の理由をコピーして開発担当へ伝えてください。';
   const pre = document.createElement('div');
   pre.style.cssText = 'background:rgba(0,0,0,.28);border-radius:8px;padding:8px 10px;'
     + 'font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;word-break:break-all;white-space:pre-wrap';
@@ -1958,12 +1970,15 @@ async function autofillReferral(r, file){
 async function uploadDocs(refId, fileList, forceKind){
   const r=DB.referrals.find(x=>x.id===refId); if(!r) return;
   r.docs=r.docs||[];
-  let _upOk=0, _upSkip=0;
+  let _upOk=0, _upSkip=0; const _upErrs=[];
   for(const f of Array.from(fileList)){
-    if(f.size>25*1048576){ toast(`${f.name} は25MBを超えています（上限25MB）`); _upSkip++; continue; }
+    if(f.size>25*1048576){ _upErrs.push(`${f.name}：25MBを超えています（上限25MB）`); _upSkip++; continue; }
     const kind = forceKind || inferKind(f.name);
     if(DEMO_MODE){ const id=uid('D'); await idbPut(id,f); r.docs.push({id, name:f.name, size:f.size, type:f.type, kind, uploaded:nowTS()}); _upOk++; }
-    else { try{ const meta=await SUPA.uploadDoc(refId,f,kind); r.docs.push(meta); _upOk++; }catch(e){ toast(`${f.name} のアップロードに失敗しました`); _upSkip++; } }
+    else { try{ const meta=await SUPA.uploadDoc(refId,f,kind); r.docs.push(meta); _upOk++; }
+           catch(e){ const _why=(e&&(e.message||e.error_description||e.error))||'不明なエラー';
+                     console.warn('[upload]', f.name, _why);
+                     _upErrs.push(`${f.name}：${_why}`); _upSkip++; } }
   }
   const filled=0;   // 自動読み取りは廃止（誤入力防止のため人が入力する）
   save();
@@ -1971,10 +1986,15 @@ async function uploadDocs(refId, fileList, forceKind){
   if(_upOk>0){
     let msg=`${_upOk}件の資料をアップロードしました`;
     if(filled) msg+=`（${filled}項目を自動入力）`;
-    if(_upSkip>0) msg+=` / ${_upSkip}件はサイズ超過などで対象外`;
+    if(_upSkip>0) msg+=` / ${_upSkip}件は失敗`;
     toast(msg);
-  } else if(_upSkip>0){
-    toast(`アップロードできませんでした（${_upSkip}件がサイズ超過などで対象外）`);
+  }
+  // 失敗は理由ごと、消えない帯で出す。トーストだと読む前に消えて原因が追えない。
+  if(_upErrs.length){
+    try{ showSyncErrorBar('資料', _upErrs.join(' ／ '), 'documents',
+           'このファイルは保存されていません。下の理由をコピーして開発担当へ伝えてください。',
+           '資料のアップロードに失敗しました'); }
+    catch(e){ toast(`アップロードに失敗しました：${_upErrs[0]}`); }
   }
   if(curRef===refId) openRefDrawer(refId);
 }
@@ -8543,8 +8563,11 @@ async function approveIntake(id, pjId){
   // フォームの添付書類を引き継ぐ。intake側の kind（rireki/shoku）は
   // 送客後に使う日本語ラベル（履歴書/職務経歴書）へ揃える。
   const KIND_JA=Object.assign({rireki:'履歴書', shoku:'職務経歴書'}, ...OFFER_DOC_SLOTS.map(d=>({[d.code]:d.kind})));
+  // 進捗確認ページから提出された書類は最初から日本語ラベルで入っている。
+  // コード表に無いからとファイル名推定へ落とすと、種別が「その他」に化けて分類が消える。
   r.docs=(Array.isArray(it.docs)?it.docs:[]).map(d=>({
-    ...d, kind: KIND_JA[d.kind] || (typeof inferKind==='function' ? inferKind(d.name) : 'その他')
+    ...d, kind: KIND_JA[d.kind]
+      || (DOC_KINDS.indexOf(d.kind)>=0 ? d.kind : (typeof inferKind==='function' ? inferKind(d.name) : 'その他'))
   }));
   if(S.role==='agency') r.seenK=false;  // KANOA未確認マーク（NEWバッジ）
   DB.referrals.unshift(r);
@@ -8552,7 +8575,14 @@ async function approveIntake(id, pjId){
   if(!(await commitReferral(r, it.name))){ return; }
   // ★書類は documents テーブルに登録しないと、再読み込み後に消えてしまう
   //   （ファイル本体はStorageに既にあるので、パスをそのまま登録する）
-  if(!DEMO_MODE && r.docs.length){ await SUPA.attachDocs(r.id, r.docs); }
+  if(!DEMO_MODE && r.docs.length){
+    const _ad=await SUPA.attachDocs(r.id, r.docs);
+    if(_ad && _ad.error){
+      // 送客自体は登録済み。書類だけ引き継げなかったことを隠さない（黙ると再読み込みで消える）
+      r.docs=[];
+      toast(`書類の引き継ぎに失敗しました。候補者カードから添付し直してください／理由：${_ad.error}`);
+    }
+  }
   // 削除せず「送客済み」として履歴に残す
   it.status='approved'; it.refId=r.id; it.decidedAt=nowTS(); it.decidedAtISO=new Date().toISOString();
   if(typeof logRef==='function') logRef(r.id,'送客登録','パートナー連携から選考会へ');
@@ -8996,7 +9026,8 @@ async function submitIntakeForm(agId, partnerName){
       DB.intake.unshift({ id:ikId, ag:agId, pj:selPj||'', name, kana:rec.kana||'', phone:rec.phone||'', email:rec.email||'', address:'', area:rec.area||'', src:company, company, note:rec.note||'', docs, source_type:'form', created:nowTS() });
       try{ persist(DB); }catch(e){}
     }
-    window._ikfDocs={rireki:null, shoku:null};
+    // 内定後の3枠も必ず空にする（消し忘れると次の紹介に前の人の書類が付く）
+    window._ikfDocs=Object.assign({rireki:null, shoku:null}, ...OFFER_DOC_SLOTS.map(d=>({[d.code]:null})));
     intakeFormDone(partnerName);
   }catch(e){
     const msg=(e&&e.message)||String(e);
