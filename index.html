@@ -1062,7 +1062,12 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     return d;
   }
   /* 変更の書き戻し（MVP：デバウンスで全テーブル upsert。大規模化時は差分同期へ） */
-  function scheduleSync(){ if(!sb) return; clearTimeout(syncT); syncT=setTimeout(syncNow, 350); }
+  /* ローカル変更の世代番号。取得を始めてから返ってくるまでの間に変更が入ったかを判定するために使う。
+     isBusy() だけでは足りない：取得中に「変更→送信完了」まで進むと、返ってきた時点では
+     isBusy() が false に戻っており、送信前の古い内容で上書きしてしまうため。 */
+  let _mutSeq=0;
+  function mutSeq(){ return _mutSeq; }
+  function scheduleSync(){ if(!sb) return; _mutSeq++; clearTimeout(syncT); syncT=setTimeout(syncNow, 350); }
   let _syncing=false;
   // isBusy: 未同期のローカル変更がある間(syncT) と 実通信中(_syncing) は true。
   // これで送信直後の未同期メッセージが、古いサーバー取得で一瞬消えるのを防ぐ。
@@ -1613,7 +1618,7 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     if(!sb) return;
     try{ await sb.from('login_logs').insert({agency_id:agId,success:!!success,method:method||'パスワード'}); }catch(e){ console.warn('login_log insert failed',e); }
   }
-  return { boot, ensureClient, signInPassword, signInOtp, signOut, resetPassword, updatePassword, partnerLogin, loginThen, loadAll, loadMessages, scheduleSync, syncNow, isBusy, isSent, isPending, delRow, insertReferral, subpartnerRegister, subpartnerList, subpartnerUpdate, trackerIssue, trackerGet, trackerSetPw, subpartnerPwGet, subpartnerPwSet, trackerView, trackerInfo, trackerRows, trackerUpdatePerson, trackerAddDoc, trackerDelDoc, attachDocs, formPartnerInfo, trackerList, trackerRevoke, uploadDoc, docUrl, removeDoc, insertLoginLog, subscribeRealtime, unsubscribeRealtime, realtimeHealthy, realtimeProven, setRealtimeAuth, forceReconnectRealtime };
+  return { boot, ensureClient, signInPassword, signInOtp, signOut, resetPassword, updatePassword, partnerLogin, loginThen, loadAll, loadMessages, scheduleSync, syncNow, isBusy, isSent, isPending, mutSeq, delRow, insertReferral, subpartnerRegister, subpartnerList, subpartnerUpdate, trackerIssue, trackerGet, trackerSetPw, subpartnerPwGet, subpartnerPwSet, trackerView, trackerInfo, trackerRows, trackerUpdatePerson, trackerAddDoc, trackerDelDoc, attachDocs, formPartnerInfo, trackerList, trackerRevoke, uploadDoc, docUrl, removeDoc, insertLoginLog, subscribeRealtime, unsubscribeRealtime, realtimeHealthy, realtimeProven, setRealtimeAuth, forceReconnectRealtime };
 })();
 
 const LS_KEY = 'kanoa_relay_v22';
@@ -2954,10 +2959,12 @@ async function pollMessages(){
   if(DEMO_MODE || !S.role || _msgBusy) return;
   if(SUPA.isBusy && SUPA.isBusy()) return;
   _msgBusy=true;
+  const seq0 = SUPA.mutSeq ? SUPA.mutSeq() : 0;
   try{
     const freshMsgs=await SUPA.loadMessages();
     if(!freshMsgs) return;
     if(SUPA.isBusy && SUPA.isBusy()) return;   // 通信中にローカル変更が入った → 今回の取得は捨てる
+    if(SUPA.mutSeq && SUPA.mutSeq()!==seq0) return;
     // 現DBのmessagesだけを差し替えたスナップショットを作り、共通のcommitFreshを通す。
     // これにより applyRefresh と同じ再描画ルール・競合防止が効く。
     const snapshot={...DB, messages:freshMsgs};
@@ -3084,9 +3091,13 @@ async function applyRefresh(){
   if(DEMO_MODE || !S.role || _refreshing) return;
   if(SUPA.isBusy && SUPA.isBusy()) return;   // ローカル変更の同期待ち中は待つ（送信中データの上書き防止）
   _refreshing=true;
+  const seq0 = SUPA.mutSeq ? SUPA.mutSeq() : 0;
   try{
     const fresh=await SUPA.loadAll();
-    if(SUPA.isBusy && SUPA.isBusy()) return;   // 通信中にローカル変更が入った → 今回の取得は捨てる
+    // 取得中にローカル変更が入っていたら、この結果は既に古い可能性があるので捨てる。
+    // 次の巡回で取り直せばよい（捨てても取りこぼしにはならない）。
+    if(SUPA.isBusy && SUPA.isBusy()) return;
+    if(SUPA.mutSeq && SUPA.mutSeq()!==seq0) return;
     if(fresh) commitFresh(fresh);
   }catch(e){}
   finally{ _refreshing=false; }
