@@ -1116,6 +1116,22 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     const m=_sent[table];
     return !!(m && key!=null && m[String(key)]!==undefined);
   }
+  /* アプリ側の行を DB 形式へ写したうえで、「まだサーバーへ送れていない変更」があるかを判定する。
+     ・一度も送れていない（新規行、または保存に失敗し続けている行）→ true
+     ・送信済みの内容と一致する → false
+     これを見ずにサーバー取得で丸ごと置き換えると、保存に失敗した変更が黙って元に戻る。 */
+  const _TO_ROW = { agencies:toAgency, projects:toProject, assignments:toAssign, referrals:toRef,
+                    messages:toMsg, members:toMember, tasks:toTask, invoices:toInvoice,
+                    reflog:toReflog, intake:toIntake, notices:toNotice };
+  function isPending(table, row){
+    const to=_TO_ROW[table]; if(!to || !row) return false;
+    let mapped; try{ mapped=to(row); }catch(e){ return false; }
+    const key=_keyOf(table, mapped); if(key==null) return false;
+    const m=_sent[table];
+    const sentFp = m ? m[key] : undefined;
+    if(sentFp===undefined) return true;
+    return sentFp !== _fingerprint(mapped);
+  }
   /* サーバーから読み直した内容を「送信済み」として記録する（無駄な再送を防ぐ） */
   function markSynced(table, rows){
     const m=_sent[table]||(_sent[table]=Object.create(null));
@@ -1150,9 +1166,13 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
           if(!error){ markSynced(table, changed); return; }   // 成功した行だけ「送信済み」に記録
           const col=_unknownColumn(error);
           if(col && !_isMissingCol(table,col)){ _rememberMissingCol(table, col); continue; }
-          console.warn('[sync]',table,error.message); return;
+          console.warn('[sync]',table,error.message);
+          try{ if(typeof notifySyncFailure==='function') notifySyncFailure(table, error.message); }catch(e2){}
+          return;
         }
-        catch(e){ console.warn('[sync]',table,e&&e.message); return; }
+        catch(e){ console.warn('[sync]',table,e&&e.message);
+          try{ if(typeof notifySyncFailure==='function') notifySyncFailure(table, e&&e.message); }catch(e2){}
+          return; }
       }
     };
     try{
@@ -1593,10 +1613,25 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     if(!sb) return;
     try{ await sb.from('login_logs').insert({agency_id:agId,success:!!success,method:method||'パスワード'}); }catch(e){ console.warn('login_log insert failed',e); }
   }
-  return { boot, ensureClient, signInPassword, signInOtp, signOut, resetPassword, updatePassword, partnerLogin, loginThen, loadAll, loadMessages, scheduleSync, syncNow, isBusy, isSent, delRow, insertReferral, subpartnerRegister, subpartnerList, subpartnerUpdate, trackerIssue, trackerGet, trackerSetPw, subpartnerPwGet, subpartnerPwSet, trackerView, trackerInfo, trackerRows, trackerUpdatePerson, trackerAddDoc, trackerDelDoc, attachDocs, formPartnerInfo, trackerList, trackerRevoke, uploadDoc, docUrl, removeDoc, insertLoginLog, subscribeRealtime, unsubscribeRealtime, realtimeHealthy, realtimeProven, setRealtimeAuth, forceReconnectRealtime };
+  return { boot, ensureClient, signInPassword, signInOtp, signOut, resetPassword, updatePassword, partnerLogin, loginThen, loadAll, loadMessages, scheduleSync, syncNow, isBusy, isSent, isPending, delRow, insertReferral, subpartnerRegister, subpartnerList, subpartnerUpdate, trackerIssue, trackerGet, trackerSetPw, subpartnerPwGet, subpartnerPwSet, trackerView, trackerInfo, trackerRows, trackerUpdatePerson, trackerAddDoc, trackerDelDoc, attachDocs, formPartnerInfo, trackerList, trackerRevoke, uploadDoc, docUrl, removeDoc, insertLoginLog, subscribeRealtime, unsubscribeRealtime, realtimeHealthy, realtimeProven, setRealtimeAuth, forceReconnectRealtime };
 })();
 
 const LS_KEY = 'kanoa_relay_v22';
+/* 保存に失敗したことを利用者に伝える（同じテーブルは1分に1回まで）。
+   以前は console にだけ出していたため、画面上は「保存できたのに数秒後に元に戻る」ようにしか見えなかった。 */
+const _TABLE_LABEL = { tasks:'タスク', messages:'連絡', referrals:'送客', invoices:'請求', notices:'お知らせ',
+                       members:'メンバー', intake:'パートナー連携', projects:'案件', agencies:'パートナー',
+                       assignments:'案件の公開設定', reflog:'操作履歴' };
+const _syncFailAt = Object.create(null);
+function notifySyncFailure(table, msg){
+  const now = Date.now();
+  if(_syncFailAt[table] && now - _syncFailAt[table] < 60000) return;
+  _syncFailAt[table] = now;
+  const label = _TABLE_LABEL[table] || table;
+  if(typeof toast==='function'){
+    toast(`${label}の保存に失敗しました。画面の変更はまだ保存されていません（${String(msg||'').slice(0,60)}）`);
+  }
+}
 /* DBに無い列を検知したときの通知（同じ列は1回だけ・KANOAにだけ画面表示） */
 const _missingColNoticed = new Set();
 function notifyMissingColumn(table, col){
@@ -2985,10 +3020,25 @@ function mergeUnsent(fresh){
   for(const t of _MERGE_TABLES){
     const cur=DB[t]; if(!Array.isArray(cur) || !cur.length) continue;
     const arr=Array.isArray(fresh[t])?fresh[t]:[];
-    const have=new Set(arr.map(r=>r&&r.id));
-    const keep=cur.filter(r=> r && r.id!=null && !have.has(r.id)
-                              && !(SUPA.isSent && SUPA.isSent(t, r.id)));
-    if(keep.length){ fresh[t]=arr.concat(keep); console.warn('[sync] '+t+': 未送信の'+keep.length+'件を保持しました'); }
+    // まだサーバーへ送れていないローカル行（新規・変更の両方）
+    const pend=new Map();
+    for(const r of cur){
+      if(!r || r.id==null) continue;
+      if(SUPA.isPending && SUPA.isPending(t, r)) pend.set(r.id, r);
+    }
+    if(!pend.size) continue;
+    // サーバー側にも在る行は、ローカルの未送信版で置き換える（並び順はサーバーのまま保つ）
+    let swapped=0;
+    const merged=arr.map(r=>{
+      if(r && r.id!=null && pend.has(r.id)){ const local=pend.get(r.id); pend.delete(r.id); swapped++; return local; }
+      return r;
+    });
+    // サーバーに無い行（新規）は末尾に足す
+    const added=[...pend.values()];
+    if(swapped || added.length){
+      fresh[t]=merged.concat(added);
+      console.warn(`[sync] ${t}: 未送信の変更${swapped}件・新規${added.length}件を保持しました`);
+    }
   }
   return fresh;
 }
