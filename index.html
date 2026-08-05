@@ -1634,15 +1634,64 @@ const _TABLE_LABEL = { tasks:'タスク', messages:'連絡', referrals:'送客',
                        members:'メンバー', intake:'パートナー連携', projects:'案件', agencies:'パートナー',
                        assignments:'案件の公開設定', reflog:'操作履歴' };
 const _syncFailAt = Object.create(null);
+/* 保存失敗は2.2秒で消えるトーストでは読めない（理由が長く、原因の切り分けに必要なため）。
+   閉じるまで残る帯で出し、理由をそのままコピーできるようにする。 */
+function showSyncErrorBar(label, msg, table){
+  let bar = document.getElementById('syncErrBar');
+  if(!bar){
+    bar = document.createElement('div');
+    bar.id = 'syncErrBar';
+    // 下に出すと連絡画面のメッセージ入力欄を覆ってしまうため上に出す
+    bar.style.cssText = 'position:fixed;left:12px;right:12px;top:12px;z-index:200;background:#7f1d1d;color:#fff;'
+      + 'border-radius:12px;padding:12px 14px;box-shadow:0 10px 30px rgba(0,0,0,.3);font-size:12.5px;line-height:1.6;'
+      + 'max-width:720px;margin:0 auto;display:flex;gap:10px;align-items:flex-start';
+    document.body.appendChild(bar);
+  }
+  const reason = String(msg || '不明');
+  bar.innerHTML = '';
+  const body = document.createElement('div');
+  body.style.cssText = 'flex:1;min-width:0';
+  const head = document.createElement('div');
+  head.style.cssText = 'font-weight:700;margin-bottom:3px';
+  head.textContent = label + 'の保存に失敗しました';
+  const sub = document.createElement('div');
+  sub.style.cssText = 'opacity:.85;margin-bottom:6px';
+  sub.textContent = '画面の変更はまだ保存されていません。下の理由をコピーして開発担当へ伝えてください。';
+  const pre = document.createElement('div');
+  pre.style.cssText = 'background:rgba(0,0,0,.28);border-radius:8px;padding:8px 10px;'
+    + 'font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;word-break:break-all;white-space:pre-wrap';
+  pre.textContent = '[' + table + '] ' + reason;
+  body.appendChild(head); body.appendChild(sub); body.appendChild(pre);
+  const btns = document.createElement('div');
+  btns.style.cssText = 'display:flex;flex-direction:column;gap:6px;flex-shrink:0';
+  const mkBtn = (text) => { const b=document.createElement('button');
+    b.textContent = text;
+    b.style.cssText = 'border:1px solid rgba(255,255,255,.45);background:transparent;color:#fff;'
+      + 'border-radius:8px;padding:5px 10px;font-size:11.5px;cursor:pointer;white-space:nowrap';
+    return b; };
+  const copy = mkBtn('コピー');
+  copy.onclick = () => {
+    const text = '[' + table + '] ' + reason;
+    const done = () => { copy.textContent = 'コピーしました'; setTimeout(()=>{ copy.textContent='コピー'; }, 1600); };
+    try{
+      if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(text).then(done, ()=>{}); return; }
+    }catch(e){}
+    try{ const ta=document.createElement('textarea'); ta.value=text; document.body.appendChild(ta);
+      ta.select(); document.execCommand('copy'); ta.remove(); done(); }catch(e){}
+  };
+  const close = mkBtn('閉じる');
+  close.onclick = () => { bar.remove(); };
+  btns.appendChild(copy); btns.appendChild(close);
+  bar.appendChild(body); bar.appendChild(btns);
+}
 function notifySyncFailure(table, msg){
   const now = Date.now();
   if(_syncFailAt[table] && now - _syncFailAt[table] < 60000) return;
   _syncFailAt[table] = now;
   const label = _TABLE_LABEL[table] || table;
-  if(typeof toast==='function'){
-    toast(`${label}の保存に失敗しました。画面の変更はまだ保存されていません／理由：${String(msg||'不明').slice(0,160)}`);
-  }
-  // 原因の切り分け用に最後の失敗を残す（コンソールで syncFailures と打つと読める）
+  try{ showSyncErrorBar(label, msg, table); }
+  catch(e){ if(typeof toast==='function') toast(`${label}の保存に失敗しました／理由：${String(msg||'不明').slice(0,160)}`); }
+  // 原因の切り分け用に直近の失敗を残す（コンソールで syncFailures と打つと読める）
   try{
     window.syncFailures = window.syncFailures || [];
     window.syncFailures.push({ at:new Date().toISOString(), table, reason:String(msg||'') });
