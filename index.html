@@ -999,7 +999,7 @@ const SUPA = (()=>{
   const toProject  =p=>({id:p.id,name:p.name,client:p.client,logo:p.logo,color:p.color,status:p.status,position:p.position,employment:p.employment,salary:p.salary,location:p.location,summary:p.summary,conditions:p.conditions,requirements:p.requirements||[],flow:p.flow||[],reward_type:p.rewardType,referral_reward:p.referralReward||0,success_reward:p.successReward||0,client_fee:p.clientFee||0,headcount:p.headcount,seminar:p.seminar,pass_note:p.passNote,case_study:p.caseStudy,detail:{rewardModel:p.rewardModel||null,checksEnabled:(p.checksEnabled==null?null:!!p.checksEnabled),baseSalaryByArea:p.baseSalaryByArea||null,docReqs:p.docReqs||null,companyOverview:p.companyOverview||null,incomeRange:p.incomeRange||null,incentives:p.incentives||null,careerPath:p.careerPath||null,careerNote:p.careerNote||null,selection:p.selection||null,preTasks:p.preTasks||null,preDocs:p.preDocs||null,preNote:p.preNote||null,interviewTips:p.interviewTips||null,faq:p.faq||null,links:p.links||null,rewardFormula:p.rewardFormula||null,rewardExample:p.rewardExample||null,refundPolicy:p.refundPolicy||null}});
   const fromAssign=r=>({pj:r.project_id,ag:r.agency_id,published:r.published,refOv:r.ref_override,sucOv:r.suc_override});
   const toAssign  =a=>({project_id:a.pj,agency_id:a.ag,published:!!a.published,ref_override:a.refOv??null,suc_override:a.sucOv??null});
-  const fromIntake=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kana||'',phone:r.phone||'',email:r.email||'',address:r.address||'',area:r.area||'',src:r.source||'',company:r.company||'',note:r.note||'',docs:Array.isArray(r.docs)?r.docs:(r.docs?JSON.parse(r.docs):[]),source_type:r.source_type||'form',status:r.status||'pending',decidedAt:r.decided_at?TZ_toLocal(r.decided_at):'',refId:r.ref_id||'',rejectNote:r.reject_note||'',created:TZ_toLocal(r.created_at)||nowTS()});
+  const fromIntake=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kana||'',phone:r.phone||'',email:r.email||'',address:r.address||'',area:r.area||'',src:r.source||'',company:r.company||'',note:r.note||'',docs:Array.isArray(r.docs)?r.docs:(r.docs?JSON.parse(r.docs):[]),source_type:r.source_type||'form',status:r.status||'pending',decidedAt:r.decided_at?TZ_toLocal(r.decided_at):'',decidedAtISO:r.decided_at||null,refId:r.ref_id||'',rejectNote:r.reject_note||'',created:TZ_toLocal(r.created_at)||nowTS()});
 const toIntake=r=>({id:r.id,project_id:r.pj||null,agency_id:r.ag,name:r.name,kana:r.kana||null,phone:r.phone||null,email:r.email||null,address:r.address||null,area:r.area||null,source:r.src||null,company:r.company||null,note:r.note||null,docs:JSON.stringify(r.docs||[]),source_type:r.source_type||'form',status:r.status||'pending',decided_at:r.decidedAtISO||null,ref_id:r.refId||null,reject_note:r.rejectNote||null});
 const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kana,phone:r.phone,email:r.email,address:r.address,area:r.area,src:r.source_company||'',resigned:!!r.resigned,resignedOn:r.resigned_on||null,resignFraud:!!r.resign_fraud,resignConfirmed:!!r.resign_confirmed,status:r.status,session:r.session||'—',joined:r.joined_on||'',created:TZ_toLocalDay(r.created_at),note:r.note||'',adminNote:r.admin_note||'',payStatus:r.pay_status||'',docs:[],spi:r.spi_status||'none',compliance:r.compliance_status||'none',seenK:r.seen_kanoa!==false,failAt:r.fail_at||null});
   const toRef  =r=>({id:r.id,project_id:r.pj,agency_id:r.ag,name:r.name,kana:r.kana,phone:r.phone,email:r.email,address:r.address,area:r.area,source_company:r.src||null,resigned:!!r.resigned,resigned_on:r.resignedOn||null,resign_fraud:!!r.resignFraud,resign_confirmed:!!r.resignConfirmed,status:r.status,session:r.session==='—'?null:r.session,joined_on:r.joined||null,note:r.note||null,admin_note:r.adminNote||null,pay_status:r.payStatus||null,spi_status:r.spi||'none',compliance_status:r.compliance||'none',seen_kanoa:r.seenK!==false,fail_at:r.failAt||null});
@@ -1640,8 +1640,14 @@ function notifySyncFailure(table, msg){
   _syncFailAt[table] = now;
   const label = _TABLE_LABEL[table] || table;
   if(typeof toast==='function'){
-    toast(`${label}の保存に失敗しました。画面の変更はまだ保存されていません（${String(msg||'').slice(0,60)}）`);
+    toast(`${label}の保存に失敗しました。画面の変更はまだ保存されていません／理由：${String(msg||'不明').slice(0,160)}`);
   }
+  // 原因の切り分け用に最後の失敗を残す（コンソールで syncFailures と打つと読める）
+  try{
+    window.syncFailures = window.syncFailures || [];
+    window.syncFailures.push({ at:new Date().toISOString(), table, reason:String(msg||'') });
+    if(window.syncFailures.length>30) window.syncFailures.shift();
+  }catch(e){}
 }
 /* DBに無い列を検知したときの通知（同じ列は1回だけ・KANOAにだけ画面表示） */
 const _missingColNoticed = new Set();
