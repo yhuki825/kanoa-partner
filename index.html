@@ -6211,7 +6211,7 @@ document.addEventListener('keydown', e=>{
   }
 });
 document.addEventListener('change', e=>{
-  if(e.target.id==='fshareSub'){ _formShareSub=e.target.value||''; renderFormShareModal(); return; }
+  if(e.target.id==='fshareSub'){ onFormShareSubChange(e.target.value||''); return; }
   if(e.target.id==='rPj'){ rFilter.pj=e.target.value; renderRefChips(); renderRefTable(); }
   if(e.target.id==='rAg'){ rFilter.ag=e.target.value; renderRefChips(); renderRefTable(); }
   if(['fSessFrom','fSessTo','fJoinFrom','fJoinTo','fCrFrom','fCrTo'].includes(e.target.id)){ const map={fSessFrom:'sessFrom',fSessTo:'sessTo',fJoinFrom:'joinFrom',fJoinTo:'joinTo',fCrFrom:'crFrom',fCrTo:'crTo'}; rFilter[map[e.target.id]]=e.target.value; renderRefTable(); }
@@ -9006,6 +9006,36 @@ function ensureSubPartners(){
     .catch(()=>{ _subPartnerLoading=false; });
 }
 
+/* 紹介先のプルダウンで選ばれたとき。
+   未登録の相手（値が new: で始まる）は、選んだ時点でパートナーとして登録し、
+   フォーム用トークンを受け取ってから選択状態にする。登録は何度呼んでも安全（既存なら existed）。 */
+async function onFormShareSubChange(val){
+  if(String(val).indexOf('new:')!==0){ _formShareSub=val; renderFormShareModal(); return; }
+  const company=String(val).slice(4);
+  const sel=document.getElementById('fshareSub');
+  if(sel){ sel.disabled=true; }
+  let res=null;
+  try{ res=await SUPA.subpartnerRegister(company); }catch(e){ res={error:(e&&e.message)||'通信に失敗しました'}; }
+  if(sel){ sel.disabled=false; }
+  if(!res || res.error){
+    _formShareSub='';
+    renderFormShareModal();
+    toast(`「${company}」の登録に失敗しました${res&&res.error?'：'+res.error:''}`);
+    return;
+  }
+  await loadSubPartners(true);   // トークンを反映するため取り直す
+  let info=subPartnerInfo(company);
+  // 取り直しても現れない場合（一覧の反映が遅れる・デモ等）は、受け取ったトークンで手元に足しておく。
+  // これをしないと、登録できたのに「（未登録）」のままで選択状態にならない。
+  if(!info && res.formToken){
+    _subPartnerCache=(_subPartnerCache||[]).concat([{company, formToken:res.formToken, token:res.token||'', contact:'', email:'', phone:'', note:''}]);
+    info=subPartnerInfo(company);
+  }
+  _formShareSub = (info && info.formToken) || res.formToken || '';
+  renderFormShareModal();
+  if(!res.existed) toast(`「${company}」をパートナーとして登録しました`);
+}
+
 async function openFormShare(){
   const agId=S.agencyId;
   const projs = agencyProjects(agId);   // このパートナーに公開されている案件
@@ -9022,10 +9052,23 @@ function renderFormShareModal(){
   // 選択された案件をURLに含める（公開する案件だけをパートナーに見せる）
   const chosen = projs.filter(p=>sel.has(p.id)).map(p=>p.id);
   const pjParam = (chosen.length && chosen.length<projs.length) ? `&pj=${encodeURIComponent(chosen.join(','))}` : '';
-  const subs = _subPartnerCache || [];
+  // プルダウンは「パートナー一覧に出ているすべての相手」を対象にする。
+  // 登録済み（フォーム用トークンあり）＝そのまま選べる。
+  // 未登録（送客の集客元やフォーム登録の会社名だけで現れている相手）＝選んだ時点で登録してトークンを得る。
+  // 以前は登録済みだけを見ていたため、一覧に出ているのにプルダウンに出ない相手がいた。
+  const regs = (_subPartnerCache || []).filter(s=>s.formToken);
+  const known = new Set(regs.map(s=>(s.company||'').trim()));
+  let extras=[];
+  try{
+    extras = subPartnersOf(agId).map(sp=>(sp.name||'').trim())
+      .filter(n=>n && !known.has(n));
+  }catch(e){}
+  extras = Array.from(new Set(extras)).sort((a,b)=>a.localeCompare(b,'ja'));
   const subParam = _formShareSub ? `&sub=${encodeURIComponent(_formShareSub)}` : '';
   const url=`${base}?form=${encodeURIComponent(agId)}${pjParam}${subParam}`;
-  const subOpts = subs.map(s=>`<option value="${esc(s.formToken||'')}"${s.formToken===_formShareSub?' selected':''}>${esc(s.company)}</option>`).join('');
+  const subOpts = regs.map(s=>`<option value="${esc(s.formToken)}"${s.formToken===_formShareSub?' selected':''}>${esc(s.company)}</option>`).join('')
+    + extras.map(n=>`<option value="new:${esc(n)}">${esc(n)}（未登録）</option>`).join('');
+  const subs = { length: regs.length + extras.length };
   const projRows = projs.length ? projs.map(p=>{
     const on=sel.has(p.id);
     return `<label style="display:flex;align-items:center;gap:9px;padding:8px 10px;border:1px solid ${on?'var(--accent)':'var(--line)'};border-radius:9px;cursor:pointer;background:${on?'var(--accent-soft)':'var(--surface)'};margin-bottom:6px">
