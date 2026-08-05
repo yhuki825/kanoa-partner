@@ -1843,6 +1843,13 @@ function fileTypeInfo(d){
 }
 function fileBadge(d){ const t=fileTypeInfo(d); return `<span class="file-badge" style="background:${t.bg};color:${t.fg}">${esc(t.label)}</span>`; }
 const DOC_KINDS=['履歴書','職務経歴書','源泉徴収票','給与明細','賞与明細','その他'];
+/* 内定後の必要書類。送客フォーム（一次）と紹介フォーム（二次）で共通に使う。
+   code は intake（フォーム登録）で使う短い種別。送客時は kind（日本語）で保存する。 */
+const OFFER_DOC_SLOTS=[
+  {id:'mDocGensen', code:'gensen', kind:'源泉徴収票', label:'源泉徴収票'},
+  {id:'mDocKyuyo',  code:'kyuyo',  kind:'給与明細',   label:'給与明細'},
+  {id:'mDocShoyo',  code:'shoyo',  kind:'賞与明細',   label:'賞与明細'},
+];
 function inferKind(name){ const n=(name||'').toLowerCase();
   if(/履歴書|resume|rireki/.test(n)) return '履歴書';
   if(/職務|職歴|career|cv|shokumu/.test(n)) return '職務経歴書';
@@ -5357,7 +5364,15 @@ function modalNewReferral(pjId, agId){
             style="width:100%;font-size:11.5px;padding:7px;border:1px solid var(--line);border-radius:8px;background:#fff;box-sizing:border-box">
         </div>
       </div>
-      <div class="cell-sub" style="font-size:10.5px;margin-top:6px">各25MBまで。後から追加・変更もできます。</div>
+      <div style="font-size:11.5px;font-weight:700;margin:12px 0 7px;padding-top:10px;border-top:1px solid var(--line)">内定後の必要書類<span style="font-weight:400;color:var(--muted);font-size:11px">（任意・この時点で分かっていれば）</span></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        ${OFFER_DOC_SLOTS.map(d=>`<div style="flex:1;min-width:150px">
+          <label style="display:block;font-size:11.5px;color:var(--soft);margin-bottom:4px">${esc(d.label)}</label>
+          <input type="file" id="${d.id}" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xlsx,.xls"
+            style="width:100%;font-size:11.5px;padding:7px;border:1px solid var(--line);border-radius:8px;background:#fff;box-sizing:border-box">
+        </div>`).join('')}
+      </div>
+      <div class="cell-sub" style="font-size:10.5px;margin-top:6px">各25MBまで。すべて任意で、後から追加・変更もできます。</div>
     </div>
     <div class="modal-grid">
       ${projSel}
@@ -6304,15 +6319,16 @@ async function saveReferral(pjId){
   // DBに確定登録（他社を含む電話番号の重複はここで確実に弾かれる）
   if(!(await commitReferral(r, name))){ return; }
   // 添付書類（任意）：履歴書・職務経歴書をアップロード（種類を明示して保存）
-  const _fRes=document.getElementById('mDocResume');
-  const _fCar=document.getElementById('mDocCareer');
-  const _resF=(_fRes&&_fRes.files&&_fRes.files[0])||null;
-  const _carF=(_fCar&&_fCar.files&&_fCar.files[0])||null;
-  if(_resF||_carF){
+  const _pick=(id)=>{ const el=document.getElementById(id); return (el&&el.files&&el.files[0])||null; };
+  const _attach=[
+    {f:_pick('mDocResume'), kind:'履歴書'},
+    {f:_pick('mDocCareer'), kind:'職務経歴書'},
+    ...OFFER_DOC_SLOTS.map(d=>({f:_pick(d.id), kind:d.kind})),
+  ].filter(x=>x.f);
+  if(_attach.length){
     toast('書類をアップロード中…');
     try{
-      if(_resF) await uploadDocs(r.id, [_resF], '履歴書');
-      if(_carF) await uploadDocs(r.id, [_carF], '職務経歴書');
+      for(const a of _attach) await uploadDocs(r.id, [a.f], a.kind);
     }catch(e){ toast('書類のアップロードに失敗しました（送客は登録されています）'); }
   }
   DB.activity.unshift({ts:nowTS(),actor:S.role==='agency'?S.agencyId:'KANOA',action:'送客登録',detail:`${name} さんを送客`});
@@ -8432,7 +8448,7 @@ async function approveIntake(id, pjId){
   r.src=it.company||it.src||'';   // 紹介元＝入力された会社名
   // フォームの添付書類を引き継ぐ。intake側の kind（rireki/shoku）は
   // 送客後に使う日本語ラベル（履歴書/職務経歴書）へ揃える。
-  const KIND_JA={rireki:'履歴書', shoku:'職務経歴書'};
+  const KIND_JA=Object.assign({rireki:'履歴書', shoku:'職務経歴書'}, ...OFFER_DOC_SLOTS.map(d=>({[d.code]:d.kind})));
   r.docs=(Array.isArray(it.docs)?it.docs:[]).map(d=>({
     ...d, kind: KIND_JA[d.kind] || (typeof inferKind==='function' ? inferKind(d.name) : 'その他')
   }));
@@ -8531,7 +8547,7 @@ function viewIntake(){
             ${it.area?`<span style="margin-right:12px">📍 ${esc(it.area)}</span>`:''}
           </div>
           ${it.note?`<div class="cell-sub" style="font-size:11.5px;margin-top:4px;color:var(--soft)">${esc(it.note)}</div>`:''}
-          ${(it.docs&&it.docs.length)?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:7px">${it.docs.map((d,di)=>`<button type="button" data-act="intake-doc" data-ik="${it.id}" data-di="${di}" style="display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border:1px solid var(--line);border-radius:7px;background:var(--surface);font-size:11px;cursor:pointer;color:var(--ink)">📎 ${esc(d.kind==='rireki'?'履歴書':d.kind==='shoku'?'職務経歴書':d.name)}</button>`).join('')}</div>`:''}
+          ${(it.docs&&it.docs.length)?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:7px">${it.docs.map((d,di)=>`<button type="button" data-act="intake-doc" data-ik="${it.id}" data-di="${di}" style="display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border:1px solid var(--line);border-radius:7px;background:var(--surface);font-size:11px;cursor:pointer;color:var(--ink)">📎 ${esc(intakeDocLabel(d))}</button>`).join('')}</div>`:''}
           <div class="cell-sub" style="font-size:11px;margin-top:5px;color:var(--muted)">受信: ${esc(it.created||'')}</div>
         </div>
         ${(()=>{ const st=intakeStatus(it);
@@ -8754,6 +8770,13 @@ function renderIntakeForm(agId, partnerName, projList, fixedCompany){
             <div style="font-size:11px;color:var(--muted,#94a3b8);margin-top:6px">PDF・Word・画像（各1ファイル・10MBまで）</div>
           </div>
           <div>
+            <label style="display:block;font-size:12px;font-weight:600;color:var(--ink,#1f3f63);margin-bottom:5px">内定後の必要書類<span style="font-weight:400;color:var(--muted,#94a3b8);font-size:11px">（任意）</span></label>
+            <div style="font-size:11px;color:var(--muted,#94a3b8);margin-bottom:8px">内定後にご提出いただく書類です。お手元にあれば、この時点で添付できます。</div>
+            <div style="display:flex;flex-direction:column;gap:10px">
+              ${OFFER_DOC_SLOTS.map(d=>ikfDocSlot(d.code, d.label)).join('')}
+            </div>
+          </div>
+          <div>
             <label style="display:block;font-size:12px;font-weight:600;color:var(--ink,#1f3f63);margin-bottom:5px">補足・備考</label>
             <textarea id="ikfNote" rows="3" placeholder="経歴やアピールポイントなど（任意）" style="width:100%;padding:10px 12px;border:1px solid var(--line,#e2e8f0);border-radius:9px;font-size:14px;box-sizing:border-box;resize:vertical;font-family:inherit"></textarea>
           </div>
@@ -8763,11 +8786,11 @@ function renderIntakeForm(agId, partnerName, projList, fixedCompany){
       </div>
     </div>
   </div>`;
-  window._ikfDocs={rireki:null, shoku:null};  // 種別ごとに1ファイル保持
+  window._ikfDocs={rireki:null, shoku:null, gensen:null, kyuyo:null, shoyo:null};  // 種別ごとに1ファイル保持
   setTimeout(()=>{
     const btn=document.getElementById('ikfSubmit');
     if(btn) btn.addEventListener('click', ()=>submitIntakeForm(agId, partnerName));
-    ['rireki','shoku'].forEach(kind=>{
+    ['rireki','shoku'].concat(OFFER_DOC_SLOTS.map(d=>d.code)).forEach(kind=>{
       const dz=document.getElementById('ikfDrop_'+kind), fi=document.getElementById('ikfFile_'+kind);
       if(dz&&fi){
         dz.addEventListener('click', ()=>fi.click());
@@ -8844,7 +8867,8 @@ async function submitIntakeForm(agId, partnerName){
   if(btn){ btn.disabled=true; btn.textContent='送信中…'; }
   const ikId='IK-'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
   // 履歴書・職務経歴書をそれぞれの種別付きで集める（選択されたものだけ）
-  const slots=[['rireki', (window._ikfDocs||{}).rireki], ['shoku', (window._ikfDocs||{}).shoku]].filter(s=>s[1]);
+  const slots=[['rireki', (window._ikfDocs||{}).rireki], ['shoku', (window._ikfDocs||{}).shoku]]
+    .concat(OFFER_DOC_SLOTS.map(d=>[d.code, (window._ikfDocs||{})[d.code]])).filter(s=>s[1]);
   const docs=[];
   try{
     if(slots.length){
@@ -8892,6 +8916,12 @@ async function submitIntakeForm(agId, partnerName){
     }
     if(btn){ btn.disabled=false; btn.textContent='この内容で紹介する'; }
   }
+}
+/* 受信箱に出す添付の名前。種別が分かるものは種別名、それ以外はファイル名 */
+function intakeDocLabel(d){
+  if(!d) return '';
+  const map=Object.assign({rireki:'履歴書', shoku:'職務経歴書'}, ...OFFER_DOC_SLOTS.map(x=>({[x.code]:x.kind})));
+  return map[d.kind] || d.kind || d.name || '';
 }
 /* フォーム添付の種別推定（履歴書/職務経歴書） */
 function inferFormDocKind(fname){
