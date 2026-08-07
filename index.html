@@ -2266,6 +2266,30 @@ function isResignedRef(r){ return !!r && (!!r.resigned || r.status==='resigned')
 /* 不明なステータスでも落ちないようにするフォールバック */
 function statusDef(s){ return STATUS[s] || {label:String(s||'—'), cls:'entry'}; }
 
+/* ── 送客のステータスを変える唯一の入口 ────────────────────────────
+   候補者カードのステータス欄と、連絡の〇×（pipelineStepper）は同じ `status` を見ている。
+   ただし〇×は「どの段階で終わったか」を `failAt` から描くため、
+   status だけ変えて failAt を放置すると表示がずれる：
+     ・カードで「見送り」にすると 〇× が全部空白になる（failAt が未設定のため）
+     ・以前の ✕ が残り、実際とは違う段階に ✕ が付いたままになる
+   ステータスを変える場所は必ずこの関数を通し、両方を同時に整える。
+   failStage を渡すと、その段階で終わったものとして上書きする（〇×の✕クリック用）。 */
+function setRefStatus(r, s, failStage){
+  if(!r || !s) return;
+  const prev = r.status;
+  r.status = s;
+  if(s==='rejected' || s==='declined'){
+    if(failStage && PIPELINE_STAGES.indexOf(failStage)>=0){ r.failAt = failStage; }
+    else if(PIPELINE_STAGES.indexOf(r.failAt||'')<0){
+      // 終わった段階＝直前にいた段階。パイプライン外から来たときは送客済とみなす
+      r.failAt = PIPELINE_STAGES.indexOf(prev)>=0 ? prev : 'entry';
+    }
+  } else {
+    r.failAt = null;
+  }
+  if(s==='joined' && !r.joined) r.joined = todayISO();
+}
+
 /* ════════════════════ 支払ステータス（送客1件ごと） ════════════════════
    選考ステータスとは別軸で、紹介料の入出金がどこまで進んだかを持つ。
    未設定（''）のときは請求・返金の状態から自動判定する（payStatusOf）。 */
@@ -4224,11 +4248,12 @@ function stageMark(r, i){
   const stages = PIPELINE_STAGES;
   // 早期退職は「入社まで通過したあとの退職」なので、入社まで全て通過扱いにする
   if(r.status==='resigned') return 'pass';
-  if(r.status==='rejected'){
+  // 見送り・辞退はどちらも「その段階で終わった」。failAt が終わった段階
+  if(r.status==='rejected' || r.status==='declined'){
     const failIdx = stages.indexOf(r.failAt||'');
-    if(failIdx<0) return 'blank';           // 落選段階が未記録
-    if(i<failIdx) return 'pass';            // 落選段階より前は通過
-    if(i===failIdx) return 'fail';          // 落選した段階
+    if(failIdx<0) return i===0 ? 'pass' : 'blank';   // 段階が未記録の古いデータ：送客済までは確実
+    if(i<failIdx) return 'pass';            // 終わった段階より前は通過
+    if(i===failIdx) return 'fail';          // そこで終わった段階
     return 'blank';                         // それ以降は未到達
   }
   const curIdx = stages.indexOf(r.status);  // declined等は-1
@@ -4239,7 +4264,7 @@ function pipelineStepper(r, viewer){
   const stages = PIPELINE_STAGES;
   const editable = viewer==='kanoa';        // 管理者(KANOA)のみ選択可・パートナーは表示のみ
   // 現在地（到達済みの最終段階）。早期退職は入社まで到達済みとして扱う
-  const curIdx = r.status==='rejected' ? stages.indexOf(r.failAt||'')
+  const curIdx = (r.status==='rejected'||r.status==='declined') ? stages.indexOf(r.failAt||'')
                : (r.status==='resigned' ? stages.indexOf('joined') : stages.indexOf(r.status));
   let h = `<div class="cmd-pipe ${editable?'editable':''}">`;
   stages.forEach((s,i)=>{
@@ -4249,7 +4274,9 @@ function pipelineStepper(r, viewer){
     const tap = editable ? `data-act="set-ref-milestone" data-ref="${r.id}" data-s="${s}"` : '';
     const cls = mark==='pass'?'passed':(mark==='fail'?'failed':'blank');
     const sym = mark==='pass'?'○':(mark==='fail'?'✕':'');
-    const ttl = editable ? 'クリックで ○（通過）→ ✕（未通過）→ 空白（未到達）を切替' : STATUS[s].label;
+    // ✕の段階では、見送りか辞退かが分かるようにする（記号は同じ✕でも意味が違うため）
+    const failWhy = (mark==='fail') ? `${STATUS[s].label}：${statusDef(r.status).label}` : '';
+    const ttl = failWhy || (editable ? 'クリックで ○（通過）→ ✕（未通過）→ 空白（未到達）を切替' : STATUS[s].label);
     h += `<div class="pipe-step ${cls} ${cur?'cur':''}" ${tap} title="${ttl}">
       <span class="pmark">${sym}</span>
       <span>${STATUS[s].label}</span>
@@ -5302,7 +5329,7 @@ function saveRefEdit(id){
     const newStatus=stEl.value;
     const block=advanceGuard(r, newStatus);
     if(block && newStatus!==r.status){ toast(block); return; }
-    r.status=newStatus;
+    setRefStatus(r, newStatus);   // 連絡の〇×とずれないよう failAt も一緒に整える
     const sessEl=document.getElementById('dr_session'); if(sessEl) r.session=sessEl.value.trim()||'—';
     // 入社日：入力欄で選んだ日付（YYYY-MM-DD）を常に優先。空にすれば「未定」へ戻せる。
     const jdEl=document.getElementById('dr_joined');
@@ -5933,8 +5960,7 @@ document.addEventListener('click', e=>{
       if(r && st && (r.status!==st || r.failAt)){
         const block=advanceGuard(r, st);
         if(block){ toast(block); break; }
-        r.status=st; r.failAt=null;
-        if(st==='joined' && !r.joined) r.joined=todayISO();
+        setRefStatus(r, st);
         DB.activity.unshift({ts:nowTS(),actor:'KANOA',action:'ステータス変更',detail:`${r.name} を「${statusDef(st).label}」に`});
         if(st==='offer'){ const need=missingDocsForStage(r,'offer'); const opt=missingOptionalForStage(r,'offer');
           if(need.length){ const txt=`【内定おめでとうございます】オファー提示のため、至急 ${need.join('・')} のご提出をお願いします。${opt.length?`（賞与の支払いがある場合は ${opt.join('・')} も）`:''}`;
@@ -5957,8 +5983,7 @@ document.addEventListener('click', e=>{
       if(next==='pass'){
         const block=advanceGuard(r, s);
         if(block){ toast(block); break; }
-        r.status=s; r.failAt=null;
-        if(s==='joined' && !r.joined) r.joined=todayISO();
+        setRefStatus(r, s);
         DB.activity.unshift({ts:nowTS(),actor:'KANOA',action:'マイルストーン',detail:`${r.name}：${STATUS[s].label} を「通過（○）」に`});
         // 内定に進んだら、内定後の必要書類をKANOAから自動でリマインド
         if(s==='offer'){ const need=missingDocsForStage(r,'offer'); const opt=missingOptionalForStage(r,'offer');
@@ -5967,11 +5992,11 @@ document.addEventListener('click', e=>{
         }
         toast(`${r.name}：${STATUS[s].label} を「通過（○）」にしました`);
       } else if(next==='fail'){
-        r.status='rejected'; r.failAt=s;
+        setRefStatus(r, 'rejected', s);   // この段階で終わった、と明示して上書き
         DB.activity.unshift({ts:nowTS(),actor:'KANOA',action:'マイルストーン',detail:`${r.name}：${STATUS[s].label} を「未通過（✕）」に`});
         toast(`${r.name}：${STATUS[s].label} を「未通過（✕）」にしました`);
       } else { // blank（未到達）：一つ手前の段階まで戻す
-        r.status = i>0 ? stages[i-1] : 'entry'; r.failAt=null;
+        setRefStatus(r, i>0 ? stages[i-1] : 'entry');
         DB.activity.unshift({ts:nowTS(),actor:'KANOA',action:'マイルストーン',detail:`${r.name}：${STATUS[s].label} を「未到達（空白）」に`});
         toast(`${r.name}：${STATUS[s].label} を「未到達（空白）」にしました`);
       }
@@ -6140,7 +6165,7 @@ document.addEventListener('click', e=>{
     case 'rsel': { const id=t.dataset.id; if(rSel.has(id)) rSel.delete(id); else rSel.add(id); renderRefTable(); break; }
     case 'rsel-all': { const rows=refFiltered(); const allSel=rows.every(r=>rSel.has(r.id)); if(allSel) rows.forEach(r=>rSel.delete(r.id)); else rows.forEach(r=>rSel.add(r.id)); renderRefTable(); break; }
     case 'rsel-clear': rSel.clear(); renderRefTable(); break;
-    case 'bulk-status-apply': { const sel=document.getElementById('bulkStatus'); const st=sel?sel.value:''; if(!st||!rSel.size) break; let n=0; DB.referrals.forEach(r=>{ if(rSel.has(r.id) && r.status!==st){ r.status=st; n++; } }); save(); rSel.clear(); renderRefChips(); renderRefTable(); updateNavCounts(); toast(`${n}件のステータスを「${statusDef(st).label}」に変更しました`); break; }
+    case 'bulk-status-apply': { const sel=document.getElementById('bulkStatus'); const st=sel?sel.value:''; if(!st||!rSel.size) break; let n=0; DB.referrals.forEach(r=>{ if(rSel.has(r.id) && r.status!==st){ setRefStatus(r, st); n++; } }); save(); rSel.clear(); renderRefChips(); renderRefTable(); updateNavCounts(); toast(`${n}件のステータスを「${statusDef(st).label}」に変更しました`); break; }
     case 'bulk-export': { const rows=DB.referrals.filter(r=>rSel.has(r.id)); exportRefsRows(rows); break; }
     case 'export-refs': exportRefs(); break;
     case 'export-earn': exportEarn(); break;
@@ -6998,7 +7023,7 @@ function markResigned(refId, resignedOn, fraud){
   // 在籍6ヶ月未満（＝返金規定の対象）の退職は、選考ステータスも「早期退職」に揃える。
   // 二度手間（退職の記録とステータス変更の二重入力）を防ぐため。
   const _m=tenureMonths(r.joined, r.resignedOn);
-  if(r.status==='joined' && (fraud || (_m!==null && _m<6))) r.status='resigned';
+  if(r.status==='joined' && (fraud || (_m!==null && _m<6))) setRefStatus(r,'resigned');
   logRef(r.id,'退職を記録',`退職日 ${r.resignedOn}${fraud?'・経歴詐称':''}`);
   save();
   if(['referrals','myrefs','refunds','posthire'].includes(S.view)) render();
@@ -7011,7 +7036,7 @@ function unmarkResigned(refId){
   const r=DB.referrals.find(x=>x.id===refId); if(!r) return;
   if(refundInvoiced(refId)){ toast('返金請求が発行済みのため取消できません。先に返金請求を削除してください'); return; }
   r.resigned=false; r.resignedOn=null; r.resignFraud=false; r.resignConfirmed=false;
-  if(r.status==='resigned') r.status='joined';   // ステータスも入社に戻す
+  if(r.status==='resigned') setRefStatus(r,'joined');   // ステータスも入社に戻す
   logRef(r.id,'退職記録を取消','');
   save();
   if(['referrals','myrefs','refunds','posthire'].includes(S.view)) render();
@@ -7403,15 +7428,15 @@ function stepBar(r){
     {k:'offer',label:'内定'},
     {k:'joined',label:'入社'},
   ];
-  const orderIdx = STATUS_ORDER.indexOf(r.status);
-  const joinedIdx = STATUS_ORDER.indexOf('joined');
-  const isRejected = r.status==='rejected';
+  // 送客〜入社の到達状況は、連絡の〇×（stageMark）と同じ判定を使う。
+  // ここを別計算にすると「カードでは何も進んでいないのに連絡では✕が付く」というズレが出る。
+  // base の並びは PIPELINE_STAGES と同じ。
+  const marks = base.map((s,i)=>stageMark(r,i));
+  const failIdx = marks.indexOf('fail');          // 見送り・辞退で終わった段階
 
   // 退職している楽天案件は、入社の先に返金ステップを追加
   let steps=base.slice();
-  let curIdx = base.findIndex(s=>s.k===r.status);
-  if(hasJoined(r)) curIdx=4;
-  if(orderIdx>=0 && orderIdx<joinedIdx) curIdx=orderIdx;
+  let curIdx = failIdx>=0 ? failIdx : marks.lastIndexOf('pass');
 
   if(hasJoined(r) && isResignedRef(r) && isRakutenProject(r.pj)){
     const rs=resignStatus(r);
@@ -7427,18 +7452,21 @@ function stepBar(r){
 
   return `<div class="stepbar" style="display:flex;align-items:flex-start;gap:0;margin:4px 0 8px;overflow-x:auto">
     ${steps.map((st,idx)=>{
+      const isFail = (failIdx>=0 && idx===failIdx);   // ここで終わった段階
       const done = idx<curIdx;
       const cur = idx===curIdx;
       const isRefundStep = st.k.startsWith('r_');
-      const color = isRejected ? 'var(--muted)'
+      const color = isFail ? 'var(--r)'
         : cur ? (isRefundStep?'var(--r)':'var(--accent)')
         : done ? (isRefundStep?'var(--r)':'var(--g)')
         : 'var(--line)';
       const textColor = (cur||done) ? 'var(--ink)' : 'var(--muted)';
-      return `<div style="display:flex;flex-direction:column;align-items:center;flex:1;min-width:52px;position:relative">
+      const ttl = isFail ? `${st.label}：${statusDef(r.status).label}` : st.label;
+      return `<div style="display:flex;flex-direction:column;align-items:center;flex:1;min-width:52px;position:relative" title="${esc(ttl)}">
         ${idx>0?`<div style="position:absolute;left:-50%;top:9px;width:100%;height:2px;background:${done||cur?color:'var(--line)'}"></div>`:''}
         <div style="width:18px;height:18px;border-radius:50%;background:${(done||cur)?color:'var(--surface)'};border:2px solid ${color};z-index:1;display:flex;align-items:center;justify-content:center">
-          ${done?'<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>':''}
+          ${isFail?'<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2"><path d="M18 6L6 18M6 6l12 12"/></svg>'
+            :done?'<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>':''}
         </div>
         <div style="font-size:10px;margin-top:5px;color:${textColor};font-weight:${cur?'600':'400'};text-align:center;white-space:nowrap">${st.label}</div>
       </div>`;
