@@ -1043,10 +1043,12 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
       sb.from('messages').select('*').order('created_at'), sb.from('members').select('*'),
       sb.from('tasks').select('*'), sb.from('documents').select('*'),
       sb.from('login_logs').select('*').order('created_at',{ascending:false}).limit(500) ]);
-    let invData=[]; try{ const iv=await sb.from('invoices').select('*'); invData=iv.data||[]; }catch(e){}
-    let logData=[]; try{ const lg=await sb.from('reflog').select('*').order('created_at',{ascending:false}).limit(1000); logData=lg.data||[]; }catch(e){}
-    let intakeData=[]; try{ const ik=await sb.from('intake').select('*').order('created_at',{ascending:false}); intakeData=ik.data||[]; }catch(e){}
-    let noticeData=[]; try{ const nt=await sb.from('notices').select('*').order('created_at',{ascending:false}); noticeData=nt.data||[]; }catch(e){}
+    // 読み取り失敗を握り潰すと「0件」と区別がつかず、空のまま同期してしまう。理由をコンソールへ残す。
+    const _pick=(tbl, res)=>{ if(res && res.error) console.warn('[load]', tbl, res.error.message); return (res && res.data) || []; };
+    let invData=[]; try{ invData=_pick('invoices', await sb.from('invoices').select('*')); }catch(e){ console.warn('[load] invoices', e&&e.message); }
+    let logData=[]; try{ logData=_pick('reflog', await sb.from('reflog').select('*').order('created_at',{ascending:false}).limit(1000)); }catch(e){ console.warn('[load] reflog', e&&e.message); }
+    let intakeData=[]; try{ intakeData=_pick('intake', await sb.from('intake').select('*').order('created_at',{ascending:false})); }catch(e){ console.warn('[load] intake', e&&e.message); }
+    let noticeData=[]; try{ noticeData=_pick('notices', await sb.from('notices').select('*').order('created_at',{ascending:false})); }catch(e){ console.warn('[load] notices', e&&e.message); }
     const d={ agencies:(ags.data||[]).map(fromAgency), projects:(pjs.data||[]).map(fromProject),
       assignments:(asn.data||[]).map(fromAssign), referrals:(refs.data||[]).map(fromRef),
       messages:(msgs.data||[]).map(fromMsg), members:(mem.data||[]).map(fromMember),
@@ -1057,19 +1059,22 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     // サーバーの現在値を「送信済み」として記録する。
     // これをしないと、読み込んだ直後の全行が「変更あり」と判定され、
     // 他端末の更新を古い内容で上書きしてしまう（差分同期の要）。
-    try{
-      markSynced('agencies',   d.agencies.map(toAgency));
-      markSynced('projects',   d.projects.map(toProject));
-      markSynced('assignments',d.assignments.map(toAssign));
-      markSynced('referrals',  d.referrals.map(toRef));
-      markSynced('messages',   d.messages.map(toMsg));
-      markSynced('members',    d.members.map(toMember));
-      markSynced('tasks',      d.tasks.map(toTask));
-      markSynced('invoices',   (d.invoices||[]).map(toInvoice));
-      markSynced('reflog',     (d.reflog||[]).map(toReflog));
-      markSynced('intake',     (d.intake||[]).map(toIntake));
-      markSynced('notices',    (d.notices||[]).map(toNotice));
-    }catch(e){ console.warn('[sync] markSynced', e && e.message); }
+    // ★1つの try で囲むと、先頭のどれかが落ちた時点で残り全部が「未送信」のまま残り、
+    //   次の同期でそのテーブルを丸ごとサーバーへ送り返してしまう（書けない役割ならRLSで毎回失敗する）。
+    //   テーブルごとに切り離し、落ちたテーブルだけを諦める。
+    const _mark=(t, build)=>{ try{ markSynced(t, build()); }
+      catch(e){ console.warn('[sync] markSynced', t, e && e.message); } };
+    _mark('agencies',   ()=>d.agencies.map(toAgency));
+    _mark('projects',   ()=>d.projects.map(toProject));
+    _mark('assignments',()=>d.assignments.map(toAssign));
+    _mark('referrals',  ()=>d.referrals.map(toRef));
+    _mark('messages',   ()=>d.messages.map(toMsg));
+    _mark('members',    ()=>d.members.map(toMember));
+    _mark('tasks',      ()=>d.tasks.map(toTask));
+    _mark('invoices',   ()=>(d.invoices||[]).map(toInvoice));
+    _mark('reflog',     ()=>(d.reflog||[]).map(toReflog));
+    _mark('intake',     ()=>(d.intake||[]).map(toIntake));
+    _mark('notices',    ()=>(d.notices||[]).map(toNotice));
     return d;
   }
   /* 変更の書き戻し（MVP：デバウンスで全テーブル upsert。大規模化時は差分同期へ） */
@@ -1080,6 +1085,16 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
   function mutSeq(){ return _mutSeq; }
   function scheduleSync(){ if(!sb) return; _mutSeq++; clearTimeout(syncT); syncT=setTimeout(syncNow, 350); }
   let _syncing=false;
+  /* ── 役割が書けないテーブルには送らない ─────────────────────────
+     「お知らせ」は KANOA だけが作成・編集する（パートナー側に編集画面は無い＝navにも無い）。
+     DBのRLSも読み取りだけを許している。にもかかわらず送ろうとすると
+     "new row violates row-level security policy" で毎回失敗し、
+     パートナーの画面に保存エラーが出続ける。送る前に止める。         */
+  const _KANOA_ONLY = ['notices'];
+  function canWrite(table){
+    if(_KANOA_ONLY.indexOf(table)<0) return true;
+    try{ return typeof S!=='undefined' && S && S.role==='kanoa'; }catch(e){ return false; }
+  }
   // isBusy: 未同期のローカル変更がある間(syncT) と 実通信中(_syncing) は true。
   // これで送信直後の未同期メッセージが、古いサーバー取得で一瞬消えるのを防ぐ。
   // 待機は syncNow 冒頭で syncT=null により必ず解除されるため「止まったまま」にはならない
@@ -1172,6 +1187,7 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     // DBに無い列（新機能の列をまだSQLで足していない等）は自動で外して再送する。
     // ※これをしないと、そのテーブルの保存が丸ごと静かに失敗し続ける。
     const one=async (table, rows)=>{
+      if(!canWrite(table)) return;                // 書ける役割でなければ送らない（下の canWrite 参照）
       const changed=_changedRows(table, rows);
       if(!changed.length) return;                 // 変更なし → 何も送らない（他端末の更新を壊さない）
       const oc=_ONCONFLICT[table];
@@ -1641,7 +1657,7 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     if(!sb) return;
     try{ await sb.from('login_logs').insert({agency_id:agId,success:!!success,method:method||'パスワード'}); }catch(e){ console.warn('login_log insert failed',e); }
   }
-  return { boot, ensureClient, signInPassword, signInOtp, signOut, resetPassword, updatePassword, partnerLogin, loginThen, loadAll, loadMessages, scheduleSync, syncNow, isBusy, isSent, isPending, mutSeq, delRow, insertReferral, subpartnerRegister, subpartnerList, subpartnerUpdate, trackerIssue, trackerGet, trackerSetPw, subpartnerPwGet, subpartnerPwSet, trackerView, trackerInfo, trackerRows, trackerUpdatePerson, trackerAddDoc, trackerDelDoc, attachDocs, formPartnerInfo, trackerList, trackerRevoke, uploadDoc, docUrl, removeDoc, insertLoginLog, subscribeRealtime, unsubscribeRealtime, realtimeHealthy, realtimeProven, setRealtimeAuth, forceReconnectRealtime };
+  return { boot, ensureClient, signInPassword, signInOtp, signOut, resetPassword, updatePassword, partnerLogin, loginThen, loadAll, loadMessages, scheduleSync, syncNow, isBusy, isSent, isPending, canWrite, mutSeq, delRow, insertReferral, subpartnerRegister, subpartnerList, subpartnerUpdate, trackerIssue, trackerGet, trackerSetPw, subpartnerPwGet, subpartnerPwSet, trackerView, trackerInfo, trackerRows, trackerUpdatePerson, trackerAddDoc, trackerDelDoc, attachDocs, formPartnerInfo, trackerList, trackerRevoke, uploadDoc, docUrl, removeDoc, insertLoginLog, subscribeRealtime, unsubscribeRealtime, realtimeHealthy, realtimeProven, setRealtimeAuth, forceReconnectRealtime };
 })();
 
 const LS_KEY = 'kanoa_relay_v22';
@@ -3150,6 +3166,9 @@ const _MERGE_TABLES=['messages','referrals','tasks','members','invoices','reflog
 function mergeUnsent(fresh){
   if(DEMO_MODE || !fresh) return fresh;
   for(const t of _MERGE_TABLES){
+    // 書けない役割のテーブルは守らない。送れない行を手元に残しても消えないゴミになるだけで、
+    // サーバーが正のはず（例：パートナーにとっての「お知らせ」）
+    if(SUPA.canWrite && !SUPA.canWrite(t)) continue;
     const cur=DB[t]; if(!Array.isArray(cur) || !cur.length) continue;
     const arr=Array.isArray(fresh[t])?fresh[t]:[];
     // まだサーバーへ送れていないローカル行（新規・変更の両方）
