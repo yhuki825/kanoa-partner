@@ -5761,6 +5761,7 @@ function closeOverlay(){ S._agDrawer=null; document.getElementById('overlay').cl
 function showModal(html, cls){
   const card=document.getElementById('modalCard');
   card.className='modal-card'+(cls?' '+cls:'');
+  delete card.dataset.noticeDraft;   // 別のモーダルへ切り替わったら、前の下書きの目印は消す
   card.innerHTML=html;
   card.scrollTop=0;
   document.getElementById('modal').classList.add('on');
@@ -6141,11 +6142,12 @@ document.addEventListener('click', e=>{
         DB.notices=DB.notices.filter(x=>x.id!==n.id);
         if(!DEMO_MODE) SUPA.delRow('notices','id',n.id);
         save(); viewNotices(); toast('削除しました'); } break; }
-    case 'notice-aud': { if(_noticeDraft){ _noticeDraft.audience=t.dataset.v; renderNoticeModal(); } break; }
-    case 'notice-ag': { if(_noticeDraft){ const id=t.dataset.ag; if(_noticeDraft.agIds.has(id)) _noticeDraft.agIds.delete(id); else _noticeDraft.agIds.add(id); renderNoticeModal(); } break; }
-    case 'notice-ag-all': { if(_noticeDraft){ _noticeDraft.agIds=new Set(DB.agencies.filter(a=>a.status==='active').map(a=>a.id)); renderNoticeModal(); } break; }
-    case 'notice-ag-none': { if(_noticeDraft){ _noticeDraft.agIds=new Set(); renderNoticeModal(); } break; }
-    case 'notice-pin-toggle': break;   // チェックボックスは保存時に読む（再描画すると入力が消えるため）
+    // 開いたままの作り直しなので、入力中の内容は引き継ぐ（true）
+    case 'notice-aud': { if(_noticeDraft){ _noticeDraft.audience=t.dataset.v; renderNoticeModal(true); } break; }
+    case 'notice-ag': { if(_noticeDraft){ const id=t.dataset.ag; if(_noticeDraft.agIds.has(id)) _noticeDraft.agIds.delete(id); else _noticeDraft.agIds.add(id); renderNoticeModal(true); } break; }
+    case 'notice-ag-all': { if(_noticeDraft){ _noticeDraft.agIds=new Set(DB.agencies.filter(a=>a.status==='active').map(a=>a.id)); renderNoticeModal(true); } break; }
+    case 'notice-ag-none': { if(_noticeDraft){ _noticeDraft.agIds=new Set(); renderNoticeModal(true); } break; }
+    case 'notice-pin-toggle': break;   // チェックボックスは再描画時と保存時に読む
     case 'supa-config': modalSupaConfig(); break;
     case 'supa-save': { let url=(val('supaUrl')||'').trim(), key=(val('supaKey')||'').trim(); if(!url){ toast('Project URL を入力してください'); break; } url=url.replace(/\/+$/,'').replace(/\/rest\/v1$/,''); try{ localStorage.setItem('kanoa_supa_cfg', JSON.stringify({url,key})); }catch(e){} toast('接続設定を保存しました。再読み込みします'); setTimeout(()=>location.reload(),700); break; }
     case 'supa-demo': { try{ localStorage.setItem('kanoa_supa_cfg', JSON.stringify({url:'',key:''})); }catch(e){} toast('デモモードに戻します'); setTimeout(()=>location.reload(),700); break; }
@@ -10322,11 +10324,19 @@ function modalEditNotice(id){
   };
   renderNoticeModal();
 }
-function renderNoticeModal(){
+/* keepInput: 開いたまま作り直すとき（公開先の切替など）だけ true。
+   closeModal はモーダルの中身を消さないため、前に編集したお知らせの入力欄がDOMに残る。
+   無条件に拾うと、新規作成や別のお知らせを開いたときに前回の内容が入ってしまう。
+   二重の安全策として、今表示中のモーダルが同じ下書きのものかも確認する。 */
+function renderNoticeModal(keepInput){
   const d=_noticeDraft; if(!d) return;
-  // 入力中の値を拾ってから作り直す（公開先を切り替えても本文が消えないように）
-  const tEl=document.getElementById('ntTitle'), bEl=document.getElementById('ntBody');
-  if(tEl) d.title=tEl.value; if(bEl) d.body=bEl.value;
+  const _card=document.getElementById('modalCard');
+  const _same = !!_card && _card.dataset.noticeDraft === String(d.id||'new');
+  if(keepInput && _same){
+    const tEl=document.getElementById('ntTitle'), bEl=document.getElementById('ntBody');
+    if(tEl) d.title=tEl.value; if(bEl) d.body=bEl.value;
+    const pEl=document.getElementById('ntPin'); if(pEl) d.pinned=pEl.checked;   // ピン留めも再描画で消さない
+  }
   const ags=DB.agencies.filter(a=>a.status==='active');
   const chips=ags.map(a=>{
     const on=d.agIds.has(a.id);
@@ -10341,7 +10351,8 @@ function renderNoticeModal(){
     border:1.5px solid ${d.audience===v?'var(--accent)':'var(--line)'};background:${d.audience===v?'var(--accent-soft)':'var(--surface)'}">
     <div style="font-size:13px;font-weight:700;color:${d.audience===v?'var(--accent)':'var(--ink)'}">${label}</div>
     <div class="cell-sub" style="font-size:11px;margin-top:2px">${sub}</div></button>`;
-  const prevScroll=(document.querySelector('#modalCard .modal-scroll')||{}).scrollTop||0;
+  // スクロール位置も、同じ下書きを作り直すときだけ引き継ぐ（新規は必ず先頭から）
+  const prevScroll=_same ? ((document.querySelector('#modalCard .modal-scroll')||{}).scrollTop||0) : 0;
   showModal(`
     <div class="modal-title">${d.id?'お知らせを編集':'お知らせを作成'}</div>
     <div class="modal-sub">公開すると、対象パートナーの「ホーム」に表示されます。</div>
@@ -10380,6 +10391,8 @@ function renderNoticeModal(){
         <button class="btn btn-primary" data-act="notice-save" data-mode="publish">公開する</button>
       </div>
     </div>`, 'modal-tall');
+  // 今どの下書きを表示しているかを刻む。次の再描画で「同じものか」を判定するために使う
+  const _c=document.getElementById('modalCard'); if(_c) _c.dataset.noticeDraft=String(d.id||'new');
   const sc=document.querySelector('#modalCard .modal-scroll'); if(sc) sc.scrollTop=prevScroll;
 }
 function saveNotice(mode){
