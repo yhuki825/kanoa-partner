@@ -1123,11 +1123,15 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
      不足列はコンソールに出し、KANOAログイン時は1度だけ画面にも知らせる。          */
   const _missingCols = Object.create(null);   // table -> Set(column)
   function _isMissingCol(table, col){ const s=_missingCols[table]; return !!(s && s.has(col)); }
-  function _rememberMissingCol(table, col){
+  function _rememberMissingCol(table, col, sample){
     (_missingCols[table] || (_missingCols[table]=new Set())).add(col);
-    console.warn(`[sync] ${table}.${col} がDBに存在しないため、この項目を除いて保存します。`
-      + ` 対処: alter table public.${table} add column if not exists ${col} text;`);
-    try{ if(typeof notifyMissingColumn==='function') notifyMissingColumn(table, col); }catch(e){}
+    // 送ろうとしていた値から型を推定してSQLを組む（text固定だと boolean 列で作り直しになるため）
+    const t = typeof sample==='boolean' ? 'boolean'
+            : typeof sample==='number'  ? 'numeric'
+            : (sample && typeof sample==='object') ? 'jsonb' : 'text';
+    const sql = `alter table public.${table} add column if not exists ${col} ${t};`;
+    console.warn(`[sync] ${table}.${col} がDBに存在しないため、この項目を除いて保存します。 対処: ${sql}`);
+    try{ if(typeof notifyMissingColumn==='function') notifyMissingColumn(table, col, sql); }catch(e){}
   }
   function _stripMissingCols(table, rows){
     const s=_missingCols[table]; if(!s || !s.size) return rows;
@@ -1195,9 +1199,14 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
         try{
           const payload=_stripMissingCols(table, changed);
           const { error }=await (oc ? sb.from(table).upsert(payload, {onConflict:oc}) : sb.from(table).upsert(payload));
-          if(!error){ markSynced(table, changed); return; }   // 成功した行だけ「送信済み」に記録
+          // ★「実際に送った内容」を記録する。changed（元の行）を記録すると、
+          //   DBに無い列を外して送ったのに全部保存できたことになり、
+          //   mergeUnsent が守らなくなって数秒後にサーバーの古い値で上書きされる
+          //   （管理者メモが消える・NEWが復活する、の正体）。
+          //   外した列が無ければ payload===changed なので従来と同じ動きになる。
+          if(!error){ markSynced(table, payload); return; }
           const col=_unknownColumn(error);
-          if(col && !_isMissingCol(table,col)){ _rememberMissingCol(table, col); continue; }
+          if(col && !_isMissingCol(table,col)){ _rememberMissingCol(table, col, (changed[0]||{})[col]); continue; }
           console.warn('[sync]',table,error.message);
           try{ if(typeof notifySyncFailure==='function') notifySyncFailure(table, error.message); }catch(e2){}
           return;
@@ -1229,14 +1238,15 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     const row=toRef(r);
     for(let attempt=0; attempt<8; attempt++){
       try{
-        const { error } = await sb.from('referrals').insert(_stripMissingCols('referrals',[row])[0]);
-        if(!error){ markSynced('referrals',[row]); return null; }
+        const _payload=_stripMissingCols('referrals',[row]);
+        const { error } = await sb.from('referrals').insert(_payload[0]);
+        if(!error){ markSynced('referrals', _payload); return null; }   // 実際に送った内容を記録する
         const msg=(error.message||'')+' '+(error.details||'');
         // 23505 = unique_violation（電話番号の一意制約）
         if(error.code==='23505' || /duplicate key|uniq_referrals_phone/i.test(msg)) return {duplicate:true};
         // DBに無い列は外して再試行（新項目の列を未追加でも登録自体は通す）
         const col=_unknownColumn(error);
-        if(col && !_isMissingCol('referrals',col)){ _rememberMissingCol('referrals', col); continue; }
+        if(col && !_isMissingCol('referrals',col)){ _rememberMissingCol('referrals', col, row[col]); continue; }
         return {message: error.message||'保存に失敗しました'};
       }catch(e){ return {message:(e&&e.message)||'保存に失敗しました'}; }
     }
@@ -1733,12 +1743,24 @@ function notifySyncFailure(table, msg){
 }
 /* DBに無い列を検知したときの通知（同じ列は1回だけ・KANOAにだけ画面表示） */
 const _missingColNoticed = new Set();
-function notifyMissingColumn(table, col){
+/* 列が足りないのは「この項目だけ永久に保存できない」状態。
+   2.2秒で消えるトーストでは気づけないため、閉じるまで残る帯で知らせる。 */
+function notifyMissingColumn(table, col, sql){
   const key=table+'.'+col;
   if(_missingColNoticed.has(key)) return;
   _missingColNoticed.add(key);
-  if(S && S.role==='kanoa' && typeof toast==='function'){
-    setTimeout(()=>toast(`データベースに ${table}.${col} 列がありません。この項目は保存されません（管理者にSQLの実行を依頼してください）`), 400);
+  const label=_TABLE_LABEL[table]||table;
+  const isK = !!(typeof S!=='undefined' && S && S.role==='kanoa');
+  const reason = isK
+    ? `${table}.${col} 列がデータベースにありません。\n対処（Supabaseで1行実行してください）：\n${sql||`alter table public.${table} add column if not exists ${col} text;`}`
+    : `${table}.${col} 列がデータベースにありません。KANOAの担当者へご連絡ください。`;
+  try{
+    showSyncErrorBar(label, reason, table,
+      isK ? 'この項目だけ保存できていません。下のSQLをSupabaseで実行すると直ります。'
+          : 'この項目だけ保存できていません。他の内容は保存されています。',
+      `${label}の一部の項目が保存できません`);
+  }catch(e){
+    if(typeof toast==='function') toast(`データベースに ${table}.${col} 列がありません。この項目は保存されません`);
   }
 }
 const yen = n => '¥' + (n||0).toLocaleString('ja-JP');
