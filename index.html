@@ -4276,7 +4276,7 @@ function pipelineStepper(r, viewer){
     const sym = mark==='pass'?'○':(mark==='fail'?'✕':'');
     // ✕の段階では、見送りか辞退かが分かるようにする（記号は同じ✕でも意味が違うため）
     const failWhy = (mark==='fail') ? `${STATUS[s].label}：${statusDef(r.status).label}` : '';
-    const ttl = failWhy || (editable ? 'クリックで ○（通過）→ ✕（未通過）→ 空白（未到達）を切替' : STATUS[s].label);
+    const ttl = failWhy || (editable ? 'クリックで ○（選考中）→ ✕（未通過）→ 空白（未到達）を切替' : STATUS[s].label);
     h += `<div class="pipe-step ${cls} ${cur?'cur':''}" ${tap} title="${ttl}">
       <span class="pmark">${sym}</span>
       <span>${STATUS[s].label}</span>
@@ -5984,13 +5984,13 @@ document.addEventListener('click', e=>{
         const block=advanceGuard(r, s);
         if(block){ toast(block); break; }
         setRefStatus(r, s);
-        DB.activity.unshift({ts:nowTS(),actor:'KANOA',action:'マイルストーン',detail:`${r.name}：${STATUS[s].label} を「通過（○）」に`});
+        DB.activity.unshift({ts:nowTS(),actor:'KANOA',action:'マイルストーン',detail:`${r.name}：${STATUS[s].label} を「選考中（○）」に`});
         // 内定に進んだら、内定後の必要書類をKANOAから自動でリマインド
         if(s==='offer'){ const need=missingDocsForStage(r,'offer'); const opt=missingOptionalForStage(r,'offer');
           if(need.length){ const txt=`【内定おめでとうございます】オファー提示のため、至急 ${need.join('・')} のご提出をお願いします。${opt.length?`（賞与の支払いがある場合は ${opt.join('・')} も）`:''}`;
             pushMsg(r.ag, 'kanoa', txt, {refId:r.id}); }
         }
-        toast(`${r.name}：${STATUS[s].label} を「通過（○）」にしました`);
+        toast(`${r.name}：${STATUS[s].label} を「選考中（○）」にしました`);
       } else if(next==='fail'){
         setRefStatus(r, 'rejected', s);   // この段階で終わった、と明示して上書き
         DB.activity.unshift({ts:nowTS(),actor:'KANOA',action:'マイルストーン',detail:`${r.name}：${STATUS[s].label} を「未通過（✕）」に`});
