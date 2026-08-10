@@ -1141,6 +1141,22 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     console.warn(`[sync] ${table}.${col} がDBに存在しないため、この項目を除いて保存します。 対処: ${sql}`);
     try{ if(typeof notifyMissingColumn==='function') notifyMissingColumn(table, col, sql); }catch(e){}
   }
+  /* ── 役割が編集できない「列」は送らない ─────────────────────────
+     upsert は行の全列を送る。候補者カードの編集フォームは S.role==='kanoa' の中にしか
+     無いのに、パートナーの端末も referrals の全列を送るため、
+     手元が数秒古いだけで KANOA が入力した値を上書きしてしまう。
+     （管理者メモが消える・NEWが戻る の直接原因）
+     新規登録は insertReferral が担当するので、ここで外しても登録には影響しない。
+     ※ status / fail_at はパートナーも「退職を記録」で変えるため外せない。
+       こちらは取得と判定のズレを直した側（noteFetched/pendingAtFetch）で守る。 */
+  const _KANOA_ONLY_COLS = { referrals: ['admin_note','seen_kanoa','pay_status'] };
+  function _stripKanoaCols(table, rows){
+    const cols=_KANOA_ONLY_COLS[table];
+    if(!cols || !cols.length) return rows;
+    let isK=false; try{ isK = typeof S!=='undefined' && S && S.role==='kanoa'; }catch(e){}
+    if(isK) return rows;
+    return rows.map(r=>{ const o={}; for(const k in r){ if(cols.indexOf(k)<0) o[k]=r[k]; } return o; });
+  }
   function _stripMissingCols(table, rows){
     const s=_missingCols[table]; if(!s || !s.size) return rows;
     return rows.map(r=>{ const o={}; for(const k in r){ if(!s.has(k)) o[k]=r[k]; } return o; });
@@ -1244,14 +1260,17 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
       const oc=_ONCONFLICT[table];
       for(let attempt=0; attempt<8; attempt++){
         try{
-          const payload=_stripMissingCols(table, changed);
+          // kept  = DBに無い列だけ外したもの（＝記録の基準）
+          // payload = さらに「この役割が編集できない列」を外したもの（＝実際に送る内容）
+          const kept=_stripMissingCols(table, changed);
+          const payload=_stripKanoaCols(table, kept);
           const { error }=await (oc ? sb.from(table).upsert(payload, {onConflict:oc}) : sb.from(table).upsert(payload));
-          // ★「実際に送った内容」を記録する。changed（元の行）を記録すると、
-          //   DBに無い列を外して送ったのに全部保存できたことになり、
-          //   mergeUnsent が守らなくなって数秒後にサーバーの古い値で上書きされる
-          //   （管理者メモが消える・NEWが復活する、の正体）。
-          //   外した列が無ければ payload===changed なので従来と同じ動きになる。
-          if(!error){ markSynced(table, payload); return; }
+          // ★記録するのは kept。
+          //   ・DBに無い列は kept からも外れている → 未送信のまま残り、手元の値が守られる
+          //   ・役割で外した列は kept に残す → もともと自分が変えていない列なので、
+          //     未送信扱いにすると永久に再送し続けてしまう
+          //   外す列が無ければ kept===changed===payload で従来と同じ動きになる。
+          if(!error){ markSynced(table, kept); return; }
           const col=_unknownColumn(error);
           if(col && !_isMissingCol(table,col)){ _rememberMissingCol(table, col, (changed[0]||{})[col]); continue; }
           console.warn('[sync]',table,error.message);
