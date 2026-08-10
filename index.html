@@ -1086,11 +1086,17 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
   function scheduleSync(){ if(!sb) return; _mutSeq++; clearTimeout(syncT); syncT=setTimeout(syncNow, 350); }
   let _syncing=false;
   /* ── 役割が書けないテーブルには送らない ─────────────────────────
-     「お知らせ」は KANOA だけが作成・編集する（パートナー側に編集画面は無い＝navにも無い）。
+     KANOA だけが編集する面。パートナー側に編集画面が無く（navにも無く）、
      DBのRLSも読み取りだけを許している。にもかかわらず送ろうとすると
      "new row violates row-level security policy" で毎回失敗し、
-     パートナーの画面に保存エラーが出続ける。送る前に止める。         */
-  const _KANOA_ONLY = ['notices'];
+     パートナーの画面に保存エラーが出続ける。送る前に止める。
+       notices     … お知らせ（KANOAの「お知らせ」画面だけが作成・編集）
+       projects    … 案件（viewProjects / viewProjectDetail はKANOA専用）
+       assignments … 案件の公開先（assignMatrix はKANOAの案件詳細にしか無い）
+     ここに足してよいのは「パートナーが書く画面が1つも無い」と確認できたものだけ。
+     agencies は招待の受諾でパートナー自身がパスワードを書くので入れてはいけない。
+     members はパートナーが自社メンバーを管理するので入れてはいけない。        */
+  const _KANOA_ONLY = ['notices','projects','assignments'];
   function canWrite(table){
     if(_KANOA_ONLY.indexOf(table)<0) return true;
     try{ return typeof S!=='undefined' && S && S.role==='kanoa'; }catch(e){ return false; }
