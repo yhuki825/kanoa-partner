@@ -1745,16 +1745,29 @@ const _TABLE_LABEL = { tasks:'タスク', messages:'連絡', referrals:'送客',
 const _syncFailAt = Object.create(null);
 /* 保存失敗は2.2秒で消えるトーストでは読めない（理由が長く、原因の切り分けに必要なため）。
    閉じるまで残る帯で出し、理由をそのままコピーできるようにする。 */
+/* 画面上部の知らせを縦に積む入れ物。
+   下に出すと連絡画面のメッセージ入力欄を覆ってしまうため上に出す。
+   複数の知らせ（保存失敗・新しい版）が同時に出ても重ならないようにする。 */
+function topBars(){
+  let box = document.getElementById('topBars');
+  if(!box){
+    box = document.createElement('div');
+    box.id = 'topBars';
+    box.style.cssText = 'position:fixed;left:12px;right:12px;top:12px;z-index:200;'
+      + 'max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:8px;pointer-events:none';
+    document.body.appendChild(box);
+  }
+  return box;
+}
 function showSyncErrorBar(label, msg, table, subText, headText){
   let bar = document.getElementById('syncErrBar');
   if(!bar){
     bar = document.createElement('div');
     bar.id = 'syncErrBar';
-    // 下に出すと連絡画面のメッセージ入力欄を覆ってしまうため上に出す
-    bar.style.cssText = 'position:fixed;left:12px;right:12px;top:12px;z-index:200;background:#7f1d1d;color:#fff;'
+    bar.style.cssText = 'background:#7f1d1d;color:#fff;pointer-events:auto;'
       + 'border-radius:12px;padding:12px 14px;box-shadow:0 10px 30px rgba(0,0,0,.3);font-size:12.5px;line-height:1.6;'
-      + 'max-width:720px;margin:0 auto;display:flex;gap:10px;align-items:flex-start';
-    document.body.appendChild(bar);
+      + 'display:flex;gap:10px;align-items:flex-start';
+    topBars().appendChild(bar);
   }
   const reason = String(msg || '不明');
   bar.innerHTML = '';
@@ -1828,6 +1841,81 @@ function notifyMissingColumn(table, col, sql){
   }catch(e){
     if(typeof toast==='function') toast(`データベースに ${table}.${col} 列がありません。この項目は保存されません`);
   }
+}
+/* ══════════ 新しい版が出ていたら知らせる ══════════
+   不具合の修正はこのHTMLの中にある。つまり「開きっぱなしの古い画面」には修正が届かない。
+   その端末が古い値をサーバーへ送り返すため、直したはずの不具合が他の人の画面で再発する
+   （既読が未読に戻る／管理者メモが消える 等の再発原因）。
+   自分自身のHTMLのETag（内容が変わると変わる印）を定期的に確認し、
+   変わっていたら再読み込みを促す。安全に判断できるときは自動で読み込み直す。 */
+const BUILD_CHECK_MS = 5*60*1000;      // 5分ごと
+let _buildTag=null, _buildStale=false, _buildTimer=null;
+async function fetchBuildTag(){
+  try{
+    const url = location.origin + location.pathname + '?_v=' + Date.now();
+    const res = await fetch(url, { method:'HEAD', cache:'no-store' });
+    if(!res || !res.ok) return null;
+    return res.headers.get('etag') || res.headers.get('last-modified') || null;
+  }catch(e){ return null; }
+}
+/* 今この瞬間に読み込み直しても、入力中のものを失わないか */
+function safeToReloadNow(){
+  try{
+    if(document.querySelector('.modal.on, .drawer.on, .overlay.on')) return false;   // 編集中の画面が開いている
+    const ta=document.getElementById('msgInput');
+    if(ta && ta.value.trim()) return false;                                          // 書きかけのメッセージ
+    if(SUPA.isBusy && SUPA.isBusy()) return false;                                   // 未送信の変更が残っている
+    const ae=document.activeElement;
+    if(ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return false;             // 何か入力中
+  }catch(e){ return false; }
+  return true;
+}
+function showUpdateBar(){
+  if(document.getElementById('updateBar')) return;
+  const bar=document.createElement('div');
+  bar.id='updateBar';
+  bar.style.cssText='background:var(--accent,#4f46e5);color:#fff;pointer-events:auto;'
+    +'border-radius:12px;padding:11px 14px;box-shadow:0 10px 30px rgba(0,0,0,.25);font-size:12.5px;line-height:1.6;'
+    +'display:flex;gap:10px;align-items:center';
+  const body=document.createElement('div');
+  body.style.cssText='flex:1;min-width:0';
+  const head=document.createElement('div');
+  head.style.cssText='font-weight:700';
+  head.textContent='新しい版があります';
+  const sub=document.createElement('div');
+  sub.style.cssText='opacity:.9';
+  sub.textContent='この画面は古いままです。読み込み直すまで不具合が直りません。';
+  body.appendChild(head); body.appendChild(sub);
+  const mk=(t)=>{ const b=document.createElement('button'); b.textContent=t;
+    b.style.cssText='border:1px solid rgba(255,255,255,.55);background:transparent;color:#fff;'
+      +'border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;white-space:nowrap;font-weight:600';
+    return b; };
+  const go=mk('読み込み直す');
+  go.onclick=()=>{ try{ location.reload(); }catch(e){} };
+  const later=mk('あとで');
+  later.onclick=()=>{ bar.remove(); setTimeout(()=>{ if(_buildStale) showUpdateBar(); }, 30*60*1000); };  // 30分後にまた出す
+  const btns=document.createElement('div');
+  btns.style.cssText='display:flex;gap:6px;flex-shrink:0';
+  btns.appendChild(go); btns.appendChild(later);
+  bar.appendChild(body); bar.appendChild(btns);
+  topBars().appendChild(bar);
+}
+async function checkForUpdate(){
+  const tag=await fetchBuildTag();
+  if(!tag) return;                               // 判定材料が取れない環境では何もしない
+  if(_buildTag==null){ _buildTag=tag; return; }  // 初回は基準を覚えるだけ
+  if(tag===_buildTag) return;
+  _buildStale=true;
+  // 見ていないタブで、入力も未送信の変更も無ければ、黙って読み込み直す
+  if(document.visibilityState==='hidden' && safeToReloadNow()){ try{ location.reload(); return; }catch(e){} }
+  showUpdateBar();
+}
+function startUpdateWatch(){
+  if(_buildTimer || DEMO_MODE) return;
+  checkForUpdate();
+  _buildTimer=setInterval(checkForUpdate, BUILD_CHECK_MS);
+  // タブに戻ってきた瞬間にも確認する（一晩開きっぱなしの端末を拾う）
+  document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') checkForUpdate(); });
 }
 const yen = n => '¥' + (n||0).toLocaleString('ja-JP');
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -3183,6 +3271,7 @@ function startAutoRefresh(){
     applyRefresh();
   }, 3000);
   _msgT=setInterval(pollMessages, 1000);
+  startUpdateWatch();   // 古い画面を開いたままにさせない
   startRealtime();
   if(!_visWired){
     _visWired=true;
