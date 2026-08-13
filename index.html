@@ -5358,7 +5358,7 @@ function openRefDrawer(id){
           <div class="field"><label>電話</label><input id="dr_phone" value="${esc(r.phone||'')}"></div>
           <div class="field"><label>メール</label><input id="dr_email" type="email" value="${esc(r.email||'')}"></div>
           <div class="field full"><label>住所</label><input id="dr_address" value="${esc(r.address||'')}"></div>
-          <div class="field full"><label>集客元（どこから集客した方か）</label><input id="dr_src" value="${esc(r.src||'')}" placeholder="例：自社サイト / ◯◯エージェント / 紹介 など"></div>
+          <div class="field full"><label>集客元（どこから集客した方か）</label><input id="dr_src" list="srcOpts" value="${esc(r.src||'')}" placeholder="例：自社サイト / ◯◯エージェント / 紹介 など">${srcDatalist(r.ag,'srcOpts')}</div>
         </div>
         <div class="dt-block-title">案件・パートナー</div>
         <div class="dr-form">
@@ -5450,7 +5450,7 @@ function openRefDrawer(id){
             ? row('集客元', r.src?`<span style="font-size:11px;color:var(--muted)">${esc(r.src)}</span>`:'<span class="cell-sub">—</span>')
             : `<div class="info-row" style="align-items:center"><span class="info-label">集客元</span>
                 <span class="info-val" style="display:flex;gap:6px;align-items:center;flex:1;justify-content:flex-end">
-                  <input id="src_inline_${r.id}" value="${esc(r.src||'')}" placeholder="例：自社サイト / 紹介 など" style="flex:1;max-width:200px;padding:5px 9px;border:1px solid var(--line);border-radius:7px;font-size:12.5px" onkeydown="if(event.key==='Enter')event.target.nextElementSibling.click()">
+                  <input id="src_inline_${r.id}" list="srcOpts" value="${esc(r.src||'')}" placeholder="例：自社サイト / 紹介 など" style="flex:1;max-width:200px;padding:5px 9px;border:1px solid var(--line);border-radius:7px;font-size:12.5px" onkeydown="if(event.key==='Enter')document.querySelector('[data-act=&quot;save-src&quot;][data-ref=&quot;${r.id}&quot;]').click()">${srcDatalist(r.ag,'srcOpts')}
                   <button class="btn btn-ghost btn-sm" data-act="save-src" data-ref="${r.id}">保存</button>
                 </span></div>`}
         ${row('入社日',r.joined?joinedYMD(r):'未定')}
@@ -9669,6 +9669,25 @@ function viewRecore(){
    ════════════════════════════════════════════════════════════ */
 
 /* 自社(ag)に紐づく二次パートナーを、会社名でグルーピングして返す */
+/* 集客元の入力候補。二次パートナーとの紐づけは「会社名の文字列一致」なので、
+   1文字違うと縁が切れる（実際に「大村さっm」という打ち間違いが記録に残っていた）。
+   候補を出して選べるようにする。datalist なので**自由入力も空欄もこれまでどおり**できる。
+   ・パートナー本人 … 登録済みの二次パートナー ＋ これまでに使われた名前
+   ・KANOA … 登録一覧は取得できない（subpartner_list は自社ぶんのみ）ので、使われた名前から */
+function srcSuggestions(ag){
+  const set=new Set(), norm=s=>(s||'').trim();
+  if(S.role==='agency' && ag===S.agencyId){
+    (_subPartnerCache||[]).forEach(s=>{ const k=norm(s.company); if(k) set.add(k); });
+  }
+  DB.referrals.forEach(r=>{ if(r.ag===ag){ const k=norm(r.src); if(k) set.add(k); } });
+  (DB.intake||[]).forEach(x=>{ if(x.ag===ag){ const k=norm(x.company); if(k) set.add(k); } });
+  return [...set].sort((a,b)=>a.localeCompare(b,'ja'));
+}
+function srcDatalist(ag, id){
+  const opts=srcSuggestions(ag);
+  if(!opts.length) return '';
+  return `<datalist id="${id}">${opts.map(o=>`<option value="${esc(o)}"></option>`).join('')}</datalist>`;
+}
 function subPartnersOf(ag){
   const map = new Map();  // 会社名 -> { name, refs:[], pending:[], info }
   const norm = s => (s||'').trim();
