@@ -3115,6 +3115,7 @@ function updateNavCounts(){
     // 退職・返金: 「今やるべきこと」の件数（パートナー）
     set('refunds', resignTodos().length||'', true);
   }
+  updateTabBadge();   // 他のタブを見ていても未読が分かるように
 }
 
 /* ════════════════════ RENDER ROUTER ════════════════════ */
@@ -3351,7 +3352,85 @@ function flashNav(view){
   const el=document.querySelector(`[data-navcount="${view}"]`); if(el) el.classList.add('alert');
   const item=document.querySelector(`.nav-item[data-view="${view}"]`); if(item){ item.classList.remove('nav-bump'); void item.offsetWidth; item.classList.add('nav-bump'); }
 }
-function notifyNewMessages(n){ toast(`新しい連絡が ${n}件 届きました`); flashNav('messages'); }
+
+/* ════════════════════ 未読のタブ通知 ════════════════════
+   バッジはアプリを開いていないと気づけない。他のタブを見ていても分かるように、
+   ブラウザのタブ（タイトル＋ファビコン）に未読件数を出す。
+   さらに、許可をもらえた場合はデスクトップ通知も出す（既定では出さない）。 */
+const BASE_TITLE = 'KANOA — パートナーポータル';
+let _badgeCount = -1;
+function myUnreadMessages(){
+  try{
+    if(!S || !S.role) return 0;
+    return S.role==='kanoa' ? unreadKanoa() : unreadAgency(S.agencyId);
+  }catch(e){ return 0; }
+}
+/* ファビコンをその場で描く（元のファビコンは無いのでアイコンごと生成する） */
+function paintFavicon(n){
+  try{
+    const c=document.createElement('canvas'); c.width=64; c.height=64;
+    const x=c.getContext('2d'); if(!x) return;
+    x.fillStyle='#17171b';
+    if(x.roundRect){ x.beginPath(); x.roundRect(0,0,64,64,14); x.fill(); }
+    else x.fillRect(0,0,64,64);
+    x.fillStyle='#ffffff';
+    x.font='700 38px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
+    x.textAlign='center'; x.textBaseline='middle';
+    x.fillText('K',32,34);
+    if(n>0){
+      x.beginPath(); x.arc(46,18,18,0,Math.PI*2); x.fillStyle='#e5484d'; x.fill();
+      x.fillStyle='#ffffff';
+      x.font='700 '+(n>9?20:24)+'px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
+      x.fillText(n>9?'9+':String(n),46,19);
+    }
+    let l=document.getElementById('favicon');
+    if(!l){ l=document.createElement('link'); l.id='favicon'; l.rel='icon'; l.type='image/png'; document.head.appendChild(l); }
+    l.href=c.toDataURL('image/png');
+  }catch(e){}
+}
+function updateTabBadge(){
+  const n=myUnreadMessages();
+  if(n===_badgeCount) return;          // 変わっていなければ何もしない（毎秒の更新で無駄に描かない）
+  _badgeCount=n;
+  document.title = n>0 ? `(${n>99?'99+':n}) ${BASE_TITLE}` : BASE_TITLE;
+  paintFavicon(n);
+}
+
+/* ── デスクトップ通知（許可制・既定はオフ）────────────────────
+   ブラウザの仕様上、許可はクリック等の操作からしか求められない。
+   連絡画面の「通知を受け取る」ボタンから求める。 */
+/* 未決のときだけ出す。許可済み・拒否済みでは邪魔なので出さない */
+function notifyBtnHtml(){
+  if(notifyState()!=='default') return '';
+  return `<button class="btn btn-ghost btn-sm" data-act="ask-notify" title="他のタブを見ていても新しい連絡に気づけます">`
+    + `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">`
+    + `<path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg>通知を受け取る</button>`;
+}
+function canNotify(){ return typeof Notification!=='undefined'; }
+function notifyState(){ return canNotify() ? Notification.permission : 'unsupported'; }
+function askNotifyPermission(){
+  if(!canNotify()){ toast('このブラウザはデスクトップ通知に対応していません'); return; }
+  if(Notification.permission==='denied'){
+    toast('ブラウザ側で通知がブロックされています。アドレスバーの鍵アイコンから許可してください');
+    return;
+  }
+  Notification.requestPermission().then(p=>{
+    if(p==='granted') toast('通知を受け取ります。次の連絡からデスクトップに表示されます');
+    else toast('通知は表示されません');
+    if(S.view==='messages') render();
+  }).catch(()=>{});
+}
+function desktopNotify(title, body){
+  try{
+    if(!canNotify() || Notification.permission!=='granted') return;
+    if(document.visibilityState==='visible') return;   // 見ている画面には出さない（トーストで足りる）
+    const n=new Notification(title, { body, tag:'kanoa-msg', renotify:true });
+    n.onclick=()=>{ try{ window.focus(); go('messages'); n.close(); }catch(e){} };
+  }catch(e){}
+}
+
+function notifyNewMessages(n){ toast(`新しい連絡が ${n}件 届きました`); flashNav('messages');
+  desktopNotify('KANOA パートナーポータル', n===1?'新しい連絡が届きました':`新しい連絡が ${n}件 届きました`); }
 function notifyNewTasks(n){ toast(`新しいタスク依頼が ${n}件 あります`); flashNav('tasks'); }
 function notifyTaskDone(n){ toast(`依頼したタスクが ${n}件 完了しました`); flashNav('tasks'); }
 let _refreshing=false;
@@ -4201,7 +4280,7 @@ function viewMessages(){
     if(S.threadAg){ renderConversation(S.threadAg,'kanoa'); return; }
     const totalUnread=unreadKanoa();
     setHeader('連絡', 'パートナー・候補者とのやり取り',
-      `${totalUnread?`<button class="btn btn-ghost btn-sm" data-act="jump-unread">未読へ移動</button>`:''}
+      `${notifyBtnHtml()}${totalUnread?`<button class="btn btn-ghost btn-sm" data-act="jump-unread">未読へ移動</button>`:''}
        <button class="btn btn-ghost btn-sm" data-act="mark-all-read">すべて既読</button>
        <button class="btn btn-ghost btn-sm" data-act="bulk-open"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>候補者へ一括送信</button>
        <button class="btn btn-primary btn-sm" data-act="broadcast"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l19-9-9 19-2-8-8-2z"/></svg>一斉連絡</button>`);
@@ -4557,7 +4636,7 @@ function renderConversation(ag, viewer){
   if(_keepUnread!==_tk && markReadSub(ag, curRef, viewer)) save();
   updateNavCounts();
   const a=agency(ag);
-  setHeader('連絡', viewer==='kanoa'?(a?a.name:ag):'KANOA 事務局', '');
+  setHeader('連絡', viewer==='kanoa'?(a?a.name:ag):'KANOA 事務局', notifyBtnHtml());
   const ms=subThread(ag, curRef);
   const pinned=ms.filter(m=>m.pinned && !m.deleted);
   const body=chatBodyHTML(ag, curRef, viewer);
@@ -6400,6 +6479,7 @@ document.addEventListener('click', e=>{
     case 'msg-search-clear': msgFilter.q=''; viewMessages(); break;
     case 'open-cand-thread': S.threadAg=t.dataset.ag; S.threadRef=t.dataset.ref; S.threadPrefill=null; S.replyTo=null; S.editMsg=null; S.picker=false; S.draft=null; go('messages'); break;
     case 'open-general-thread': S.threadAg=(S.role==='kanoa'?S.threadAg:null); S.threadRef=null; S.replyTo=null; S.editMsg=null; S.picker=false; S.draft=null; go('messages'); break;
+    case 'ask-notify': askNotifyPermission(); break;
     case 'mark-all-read': DB.messages.forEach(m=>{ if(m.from==='agency') m.read=true; }); save(); updateNavCounts(); viewMessages(); toast('すべて既読にしました'); break;
     case 'mark-unread': { const _in=meRole()==='kanoa'?'agency':'kanoa';
       const ms=thread(t.dataset.ag).filter(m=>m.from===_in && !m.deleted);
