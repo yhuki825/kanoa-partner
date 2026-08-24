@@ -1036,19 +1036,52 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
     if(ag) return { role:'agency', agencyId:ag.id };
     return { role:null };
   }
+  /* ── 全件取得（行数上限で黙って切られるのを防ぐ）──────────────────
+     PostgREST は1回のリクエストで返す行数に上限がある（Supabaseの既定は1000行）。
+     上限を超えると、並び順の先頭からその件数だけが返り、**残りは黙って落ちる**。
+     messages は created_at の昇順で読んでいたため、上限に達した時点で
+     「新しいメッセージほど返ってこない」状態になっていた。
+     ＝送ったのに自分の画面に出ない。相手（パートナー）はRLSで件数が少ないので見えていた。
+
+     上限値はサーバー設定なのでクライアントからは分からない。
+     そこで「0件が返るまで」取り続け、**実際に返った件数だけ位置を進める**。
+     こうすれば上限がいくつでも取り切れる。 */
+  const _PAGE = 1000;
+  async function fetchAll(build, label){
+    const out=[];
+    let from=0;
+    for(let guard=0; guard<500; guard++){
+      let res;
+      try{ res = await build().range(from, from+_PAGE-1); }
+      catch(e){ console.warn('[load]', label, e && e.message); return { data: out, error: e }; }
+      if(res && res.error){ console.warn('[load]', label, res.error.message); return { data: out, error: res.error }; }
+      const rows = (res && res.data) || [];
+      if(!rows.length) break;
+      out.push(...rows);
+      from += rows.length;
+    }
+    return { data: out, error: null };
+  }
   async function loadAll(){
+    // 件数が増えても取りこぼさないよう、上限のあるテーブルは全件取り切る。
+    // messages は一括送信で created_at が同時刻になりうるので、id を第2キーにして
+    // ページの境目で重複・欠落が出ないようにする。
     const [ags,pjs,asn,refs,msgs,mem,tsk,docs,llogs] = await Promise.all([
-      sb.from('agencies').select('*').order('id'), sb.from('projects').select('*'),
-      sb.from('assignments').select('*'), sb.from('referrals').select('*'),
-      sb.from('messages').select('*').order('created_at'), sb.from('members').select('*'),
-      sb.from('tasks').select('*'), sb.from('documents').select('*'),
+      fetchAll(()=>sb.from('agencies').select('*').order('id'), 'agencies'),
+      fetchAll(()=>sb.from('projects').select('*').order('id'), 'projects'),
+      fetchAll(()=>sb.from('assignments').select('*').order('project_id').order('agency_id'), 'assignments'),
+      fetchAll(()=>sb.from('referrals').select('*').order('id'), 'referrals'),
+      fetchAll(()=>sb.from('messages').select('*').order('created_at').order('id'), 'messages'),
+      fetchAll(()=>sb.from('members').select('*').order('id'), 'members'),
+      fetchAll(()=>sb.from('tasks').select('*').order('id'), 'tasks'),
+      fetchAll(()=>sb.from('documents').select('*').order('id'), 'documents'),
       sb.from('login_logs').select('*').order('created_at',{ascending:false}).limit(500) ]);
     // 読み取り失敗を握り潰すと「0件」と区別がつかず、空のまま同期してしまう。理由をコンソールへ残す。
     const _pick=(tbl, res)=>{ if(res && res.error) console.warn('[load]', tbl, res.error.message); return (res && res.data) || []; };
-    let invData=[]; try{ invData=_pick('invoices', await sb.from('invoices').select('*')); }catch(e){ console.warn('[load] invoices', e&&e.message); }
+    let invData=[]; try{ invData=_pick('invoices', await fetchAll(()=>sb.from('invoices').select('*').order('id'), 'invoices')); }catch(e){ console.warn('[load] invoices', e&&e.message); }
     let logData=[]; try{ logData=_pick('reflog', await sb.from('reflog').select('*').order('created_at',{ascending:false}).limit(1000)); }catch(e){ console.warn('[load] reflog', e&&e.message); }
-    let intakeData=[]; try{ intakeData=_pick('intake', await sb.from('intake').select('*').order('created_at',{ascending:false})); }catch(e){ console.warn('[load] intake', e&&e.message); }
-    let noticeData=[]; try{ noticeData=_pick('notices', await sb.from('notices').select('*').order('created_at',{ascending:false})); }catch(e){ console.warn('[load] notices', e&&e.message); }
+    let intakeData=[]; try{ intakeData=_pick('intake', await fetchAll(()=>sb.from('intake').select('*').order('created_at',{ascending:false}).order('id'), 'intake')); }catch(e){ console.warn('[load] intake', e&&e.message); }
+    let noticeData=[]; try{ noticeData=_pick('notices', await fetchAll(()=>sb.from('notices').select('*').order('created_at',{ascending:false}).order('id'), 'notices')); }catch(e){ console.warn('[load] notices', e&&e.message); }
     const d={ agencies:(ags.data||[]).map(fromAgency), projects:(pjs.data||[]).map(fromProject),
       assignments:(asn.data||[]).map(fromAssign), referrals:(refs.data||[]).map(fromRef),
       messages:(msgs.data||[]).map(fromMsg), members:(mem.data||[]).map(fromMember),
@@ -1537,8 +1570,8 @@ const fromRef=r=>({id:r.id,pj:r.project_id,ag:r.agency_id,name:r.name,kana:r.kan
   }
   async function loadMessages(){   // 連絡のみ軽量取得（高速な新着検知用）
     if(!sb) return null;
-    const { data, error } = await sb.from('messages').select('*').order('created_at');
-    if(error) return null;
+    const { data, error } = await fetchAll(()=>sb.from('messages').select('*').order('created_at').order('id'), 'messages');
+    if(error) return null;   // 途中で失敗したら反映しない（欠けた一覧でDBを置き換えない）
     return (data||[]).map(fromMsg);
   }
   let _rtStatus='closed', _rtOnChange=null, _rtWatchdog=null;
@@ -3271,7 +3304,13 @@ function startAutoRefresh(){
     _pollSkips=0;
     applyRefresh();
   }, 3000);
-  _msgT=setInterval(pollMessages, 1000);
+  // 全件取り切る方式にしたので1回の取得が複数リクエストになりうる。
+  // 3秒側と同じく、Realtimeで実際に受信できている間はポーリングを休む
+  // （Realtimeのmessagesイベントが pollMessages を直接呼ぶので即時性は落ちない）。
+  _msgT=setInterval(()=>{
+    if(SUPA.realtimeHealthy && SUPA.realtimeHealthy()) return;
+    pollMessages();
+  }, 1000);
   startUpdateWatch();   // 古い画面を開いたままにさせない
   startRealtime();
   if(!_visWired){
